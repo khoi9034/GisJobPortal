@@ -12,6 +12,8 @@ from .paths import DB_PATH
 VALID_STATUSES = {
     "new",
     "saved",
+    "materials_generated",
+    "ready_to_apply",
     "skipped",
     "applied",
     "interview",
@@ -25,6 +27,7 @@ JSON_FIELDS = {
     "missing_skills",
     "keyword_matches",
     "resume_bullet_suggestions",
+    "document_checklist",
 }
 
 JOB_COLUMNS = [
@@ -54,6 +57,8 @@ JOB_COLUMNS = [
     "fit_reasons",
     "keyword_matches",
     "recommended_resume_angle",
+    "application_packet_dir",
+    "document_checklist",
 ]
 
 
@@ -109,7 +114,9 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 scoring_breakdown TEXT DEFAULT '{}',
                 fit_reasons TEXT DEFAULT '[]',
                 keyword_matches TEXT DEFAULT '[]',
-                recommended_resume_angle TEXT DEFAULT ''
+                recommended_resume_angle TEXT DEFAULT '',
+                application_packet_dir TEXT DEFAULT '',
+                document_checklist TEXT DEFAULT '{}'
             );
 
             CREATE UNIQUE INDEX IF NOT EXISTS ux_jobs_duplicate
@@ -157,6 +164,18 @@ def init_db(path: Path | str = DB_PATH) -> None:
             );
             """
         )
+        ensure_job_columns(conn)
+
+
+def ensure_job_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    additions = {
+        "application_packet_dir": "TEXT DEFAULT ''",
+        "document_checklist": "TEXT DEFAULT '{}'",
+    }
+    for column, ddl in additions.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
 
 
 def dumps(value: Any) -> str:
@@ -169,9 +188,9 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         value = job.get(field)
         if isinstance(value, str):
             try:
-                job[field] = json.loads(value) if value else ([] if field != "scoring_breakdown" else {})
+                job[field] = json.loads(value) if value else ({} if field in {"scoring_breakdown", "document_checklist"} else [])
             except json.JSONDecodeError:
-                job[field] = [] if field != "scoring_breakdown" else {}
+                job[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
     return job
 
 
@@ -206,7 +225,7 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     values["match_score"] = int(values.get("match_score") or 0)
     for field in JSON_FIELDS:
         if values.get(field) is None:
-            values[field] = {} if field == "scoring_breakdown" else []
+            values[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
         values[field] = dumps(values.get(field))
 
     columns = ", ".join(JOB_COLUMNS)
@@ -253,7 +272,7 @@ def update_job_fields(job_id: int, fields: dict[str, Any], path: Path | str = DB
     values = dict(fields)
     for field in JSON_FIELDS & set(values):
         if values.get(field) is None:
-            values[field] = {} if field == "scoring_breakdown" else []
+            values[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
         values[field] = dumps(values[field])
     assignments = ", ".join(f"{field} = ?" for field in values)
 

@@ -3,17 +3,29 @@ from __future__ import annotations
 from typing import Any
 
 
-def format_material_context(job: dict[str, Any], profile: dict[str, Any]) -> str:
+def format_material_context(
+    job: dict[str, Any],
+    profile: dict[str, Any],
+    resume_text: str = "",
+    transcript_summary: str = "",
+) -> str:
     return (
         f"Candidate: {profile['name']} | {profile['email']} | {profile['location']}\n"
         f"Portfolio: {profile['portfolio']}\n"
         f"Job: {job['title']} at {job['company']} in {job['location']}\n"
+        f"Resume source: {'private/resume/resume_extracted.md' if resume_text else 'config/profile.yaml'}\n"
+        f"Transcript source: {'private/transcript/transcript_summary.md' if transcript_summary else 'not used'}\n"
         "Rules: include the portfolio, do not include a phone number or GitHub, "
         "do not overclaim, and do not use unsupported seniority labels."
     )
 
 
-def generate_materials(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+def generate_materials(
+    job: dict[str, Any],
+    profile: dict[str, Any],
+    resume_text: str = "",
+    transcript_summary: str = "",
+) -> dict[str, Any]:
     title = job["title"]
     company = job["company"]
     portfolio = profile["portfolio"]
@@ -63,5 +75,5 @@ Best,
         "followup_email": followup_email,
         "recruiter_message": recruiter_message,
         "resume_bullets": resume_bullets,
-        "context": format_material_context(job, profile),
+        "context": format_material_context(job, profile, resume_text, transcript_summary),
     }

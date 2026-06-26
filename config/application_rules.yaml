@@ -1,0 +1,48 @@
+privacy:
+  never_commit:
+    - private resume PDFs
+    - private transcript PDFs
+    - extracted private documents
+    - generated application packets
+  never_include:
+    - phone number
+    - GitHub unless added later
+    - unsupported claims
+    - expert language
+  always_include:
+    - portfolio link
+portfolio: https://portfolio-gamma-six-p15gdz1e0v.vercel.app/
+transcript_use_cases:
+  - internships
+  - government jobs
+  - entry-level jobs asking for transcript
+  - jobs asking for relevant coursework
+  - jobs where academic GIS coursework is useful
+transcript_phrases:
+  - transcript required
+  - unofficial transcript
+  - official transcript
+  - academic transcript
+  - college transcript
+  - coursework
+  - GPA
+  - degree verification
+document_phrases:
+  cover_letter:
+    - cover letter
+    - letter of interest
+  transcript:
+    - transcript required
+    - unofficial transcript
+    - official transcript
+    - academic transcript
+    - college transcript
+    - coursework
+    - GPA
+    - degree verification
+  references:
+    - references
+    - reference list
+  writing_sample:
+    - writing sample
+    - writing samples

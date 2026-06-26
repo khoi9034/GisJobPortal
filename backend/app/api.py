@@ -8,6 +8,14 @@ from pydantic import BaseModel
 
 from . import db
 from .collectors import refresh_jobs
+from .documents import (
+    extract_resume,
+    extract_transcript,
+    generate_application_packet,
+    get_application_packet,
+    resume_summary,
+    transcript_summary,
+)
 from .materials import generate_materials
 from .profile import load_profile
 from .scoring import score_job
@@ -29,6 +37,17 @@ class StatusPatch(BaseModel):
 
 class NotesPatch(BaseModel):
     notes: str
+
+
+class ChecklistPatch(BaseModel):
+    checklist: dict[str, Any] | None = None
+    resume_required: bool | None = None
+    cover_letter_required: bool | None = None
+    transcript_required: bool | None = None
+    portfolio_link_included: bool | None = None
+    references_required: bool | None = None
+    writing_sample_required: bool | None = None
+    other_documents: str | None = None
 
 
 class SourceIn(BaseModel):
@@ -83,6 +102,22 @@ def materials(job_id: int) -> dict[str, Any]:
     return db.save_materials(job_id, generated)
 
 
+@app.post("/jobs/{job_id}/generate-application-packet")
+def application_packet_generate(job_id: int) -> dict[str, Any]:
+    try:
+        return generate_application_packet(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/jobs/{job_id}/application-packet")
+def application_packet(job_id: int) -> dict[str, Any]:
+    try:
+        return get_application_packet(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.patch("/jobs/{job_id}/status")
 def status(job_id: int, patch: StatusPatch) -> dict[str, Any]:
     try:
@@ -99,6 +134,48 @@ def notes(job_id: int, patch: NotesPatch) -> dict[str, Any]:
         return db.update_job_fields(job_id, {"notes": patch.notes})
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/jobs/{job_id}/document-checklist")
+def document_checklist(job_id: int, patch: ChecklistPatch) -> dict[str, Any]:
+    data = patch.model_dump(exclude_none=True)
+    updates = data.pop("checklist", None) or data
+    try:
+        found = db.get_job(job_id)
+        if not found:
+            raise LookupError(f"Job {job_id} not found")
+        checklist = {**(found.get("document_checklist") or {}), **updates}
+        return db.update_job_fields(job_id, {"document_checklist": checklist})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/documents/resume/extract")
+def resume_extract() -> dict[str, Any]:
+    try:
+        return extract_resume()
+    except (FileNotFoundError, RuntimeError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/documents/resume/summary")
+def resume_get_summary() -> dict[str, Any]:
+    return resume_summary()
+
+
+@app.post("/documents/transcript/extract")
+def transcript_extract() -> dict[str, Any]:
+    try:
+        return extract_transcript()
+    except (FileNotFoundError, RuntimeError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/documents/transcript/summary")
+def transcript_get_summary() -> dict[str, Any]:
+    return transcript_summary()
 
 
 @app.get("/stats/overview")

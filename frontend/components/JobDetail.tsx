@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, Job } from "../lib/api";
+import { api, ApplicationPacket, DocumentChecklist, Job } from "../lib/api";
 
 export default function JobDetail({ id }: { id: string }) {
   const [job, setJob] = useState<Job | null>(null);
+  const [packet, setPacket] = useState<ApplicationPacket | null>(null);
+  const [checklist, setChecklist] = useState<DocumentChecklist>({});
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
 
@@ -13,6 +15,7 @@ export default function JobDetail({ id }: { id: string }) {
     const row = await api<Job>(`/jobs/${id}`);
     setJob(row);
     setNotes(row.notes || "");
+    setChecklist(row.document_checklist || {});
   }
 
   useEffect(() => {
@@ -37,9 +40,28 @@ export default function JobDetail({ id }: { id: string }) {
   }
 
   async function generate() {
-    await api<Job>(`/jobs/${id}/generate-materials`, { method: "POST" });
-    setMessage("Materials generated.");
+    const row = await api<ApplicationPacket>(`/jobs/${id}/generate-application-packet`, { method: "POST" });
+    setPacket(row);
+    setChecklist(row.document_checklist || {});
+    setMessage("Application packet generated.");
     await load();
+  }
+
+  async function viewPacket() {
+    const row = await api<ApplicationPacket>(`/jobs/${id}/application-packet`);
+    setPacket(row);
+    setChecklist(row.document_checklist || checklist);
+    setMessage(row.exists ? "Application packet loaded." : "No packet generated yet.");
+  }
+
+  async function saveChecklist() {
+    const row = await api<Job>(`/jobs/${id}/document-checklist`, {
+      method: "PATCH",
+      body: JSON.stringify({ checklist }),
+    });
+    setJob(row);
+    setChecklist(row.document_checklist || {});
+    setMessage("Document checklist saved.");
   }
 
   async function copy(text: string, label: string) {
@@ -70,10 +92,12 @@ export default function JobDetail({ id }: { id: string }) {
         <Link className="button" href="/">Back</Link>
         <button className="button" onClick={() => updateStatus("saved")}>Save</button>
         <button className="button" onClick={() => updateStatus("skipped")}>Skip</button>
+        <button className="button" onClick={() => updateStatus("ready_to_apply")}>Mark Ready to Apply</button>
         <button className="button" onClick={() => updateStatus("applied")}>Mark Applied</button>
-        <button className="button" onClick={() => updateStatus("follow_up_needed")}>Needs Follow-Up</button>
+        <button className="button" onClick={() => updateStatus("follow_up_needed")}>Mark Follow-Up Needed</button>
         <button className="button" onClick={score}>Rescore</button>
-        <button className="button warning" onClick={generate}>Generate Materials</button>
+        <button className="button warning" onClick={generate}>Generate Application Packet</button>
+        <button className="button" onClick={viewPacket}>View Application Packet</button>
         <a className="button primary" href={job.apply_url} target="_blank">Open Apply Link</a>
       </div>
       {message && <p className="muted">{message}</p>}
@@ -90,9 +114,16 @@ export default function JobDetail({ id }: { id: string }) {
           <h3>Generated Follow-Up Email</h3>
           <pre>{job.generated_followup_email || "Generate materials to create a draft."}</pre>
           <button className="button" disabled={!job.generated_followup_email} onClick={() => copy(job.generated_followup_email, "follow-up email")}>Copy Follow-Up Email</button>
+          <h3>Recruiter Message</h3>
+          <pre>{job.recruiter_message || "Generate materials to create a draft."}</pre>
+          <button className="button" disabled={!job.recruiter_message} onClick={() => copy(job.recruiter_message, "recruiter message")}>Copy Recruiter Message</button>
+          <PacketView packet={packet} />
         </section>
 
         <aside className="detail-section">
+          <h3>Document Checklist</h3>
+          <Checklist checklist={checklist} setChecklist={setChecklist} />
+          <button className="button" onClick={saveChecklist}>Save Checklist</button>
           <h3>Scoring Breakdown</h3>
           {Object.entries(job.scoring_breakdown || {}).map(([key, value]) => (
             <p key={key}><strong>{key.replaceAll("_", " ")}</strong>: {value}</p>
@@ -111,5 +142,58 @@ export default function JobDetail({ id }: { id: string }) {
         </aside>
       </div>
     </main>
+  );
+}
+
+function Checklist({
+  checklist,
+  setChecklist,
+}: {
+  checklist: DocumentChecklist;
+  setChecklist: (checklist: DocumentChecklist) => void;
+}) {
+  const rows: Array<[keyof DocumentChecklist, string]> = [
+    ["resume_required", "Resume required"],
+    ["cover_letter_required", "Cover letter required"],
+    ["transcript_required", "Transcript required"],
+    ["portfolio_link_included", "Portfolio link included"],
+    ["references_required", "References required"],
+    ["writing_sample_required", "Writing sample required"],
+  ];
+  return (
+    <div>
+      {rows.map(([key, label]) => (
+        <label className="check-row" key={key}>
+          <input
+            type="checkbox"
+            checked={Boolean(checklist[key])}
+            onChange={(event) => setChecklist({ ...checklist, [key]: event.target.checked })}
+          />
+          {label}
+        </label>
+      ))}
+      <label className="muted" htmlFor="other-documents">Other documents</label>
+      <textarea
+        id="other-documents"
+        value={checklist.other_documents || ""}
+        onChange={(event) => setChecklist({ ...checklist, other_documents: event.target.value })}
+      />
+    </div>
+  );
+}
+
+function PacketView({ packet }: { packet: ApplicationPacket | null }) {
+  if (!packet) return null;
+  return (
+    <section>
+      <h3>Application Packet</h3>
+      <p className="muted">{packet.packet_dir}</p>
+      {Object.entries(packet.files).map(([name, content]) => (
+        <details key={name}>
+          <summary>{name}</summary>
+          <pre>{content}</pre>
+        </details>
+      ))}
+    </section>
   );
 }

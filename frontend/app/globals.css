@@ -273,6 +273,24 @@ textarea {
   padding: 12px;
 }
 
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  color: var(--text);
+}
+
+details {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+summary {
+  cursor: pointer;
+  color: var(--green);
+}
+
 @media (max-width: 900px) {
   .shell,
   .detail-grid {

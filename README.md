@@ -60,6 +60,26 @@ Supported source types:
 
 Disabled static sources are kept as review targets only. The app intentionally avoids LinkedIn/Indeed scraping and portal automation.
 
+## Private Documents
+
+Put your resume PDF in `private/resume/`, then run:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8000/documents/resume/extract
+```
+
+This creates `private/resume/resume_extracted.md` for local review and manual editing.
+
+Put your transcript PDF in `private/transcript/` only when needed, then run:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8000/documents/transcript/extract
+```
+
+This creates `private/transcript/transcript_summary.md`. The transcript summary is used only for internships, government/entry-level roles asking for transcript/coursework/GPA/degree proof, or jobs where academic GIS coursework is useful.
+
+`private/`, `*.pdf`, `*.docx`, and `generated/application_packets/` are ignored by Git except placeholder files. Do not commit private documents. Generated application packets stay local. Review all materials before submitting applications.
+
 ## Tests
 
 ```powershell

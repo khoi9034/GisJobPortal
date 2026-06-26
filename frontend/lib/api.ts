@@ -28,6 +28,26 @@ export type Job = {
   fit_reasons: string[];
   keyword_matches: string[];
   recommended_resume_angle: string;
+  application_packet_dir: string;
+  document_checklist: DocumentChecklist;
+};
+
+export type DocumentChecklist = {
+  resume_required?: boolean;
+  cover_letter_required?: boolean;
+  transcript_required?: boolean;
+  portfolio_link_included?: boolean;
+  references_required?: boolean;
+  writing_sample_required?: boolean;
+  other_documents?: string;
+};
+
+export type ApplicationPacket = {
+  job_id: number;
+  exists: boolean;
+  packet_dir: string;
+  files: Record<string, string>;
+  document_checklist: DocumentChecklist;
 };
 
 export type Stats = {
