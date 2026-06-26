@@ -87,7 +87,7 @@ class MvpTests(unittest.TestCase):
 
     def test_gitignore_protects_private_documents(self):
         patterns = Path(".gitignore").read_text(encoding="utf-8")
-        for pattern in ["private/**", "generated/application_packets/**", "*.pdf", "*.docx", ".env", "*.env"]:
+        for pattern in ["private/", "private/**", "generated/application_packets/", "generated/application_packets/**", "*.pdf", "*.docx", ".env", ".env.*", "*.env", ".vercel"]:
             self.assertIn(pattern, patterns)
         self.assertIn("!private/resume/place_resume_here.md", patterns)
 

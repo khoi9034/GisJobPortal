@@ -37,6 +37,31 @@ npm run dev
 
 Dashboard: `http://localhost:3000`
 
+## Vercel Frontend Deployment
+
+Deploy only the Next.js frontend for now. In Vercel, set the project Root Directory to `frontend`.
+
+Safe frontend environment variables:
+
+```text
+NEXT_PUBLIC_APP_NAME=GIS Apply Copilot
+NEXT_PUBLIC_API_MODE=demo
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Use `NEXT_PUBLIC_API_MODE=demo` until a hosted backend with durable storage is ready. The FastAPI + SQLite backend is local-only for now because Vercel serverless storage is not persistent.
+
+Do not commit `.env`, `.vercel/`, tokens, private documents, resume/transcript PDFs, extracted document text, or generated application packets.
+
+From `frontend/`, deployment commands use `VERCEL_TOKEN` from the local environment:
+
+```powershell
+vercel link --yes --project "prj_7rRCF8pTAJBrxMQZtsjBgvNYiKGI"
+vercel pull --yes --environment=production
+vercel build --prod
+vercel deploy --prebuilt --prod
+```
+
 ## Refresh Jobs
 
 ```powershell
