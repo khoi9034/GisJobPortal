@@ -1,0 +1,72 @@
+[
+  {
+    "title": "GIS Analyst",
+    "company": "City of Concord",
+    "location": "Concord, NC",
+    "remote_status": "onsite",
+    "source": "Sample GIS Jobs",
+    "source_url": "https://example.com/concord-gis-analyst",
+    "apply_url": "https://example.com/concord-gis-analyst/apply",
+    "description": "Support city GIS operations, parcel data maintenance, zoning layers, web maps, public works datasets, and ArcGIS Enterprise services for planning and infrastructure teams.",
+    "requirements": "ArcGIS Pro, ArcGIS Online, ArcGIS Enterprise, Python scripting, SQL, parcel data, zoning, land use, and clear communication with city departments.",
+    "salary_min": 58000,
+    "salary_max": 72000,
+    "date_posted": "2026-06-12"
+  },
+  {
+    "title": "Planning Technician",
+    "company": "Cabarrus County Planning Department",
+    "location": "Concord, NC",
+    "remote_status": "onsite",
+    "source": "Sample GIS Jobs",
+    "source_url": "https://example.com/cabarrus-planning-tech",
+    "apply_url": "https://example.com/cabarrus-planning-tech/apply",
+    "description": "Maintain planning datasets, review addresses and zoning records, prepare maps for staff reports, and help publish public-facing planning information.",
+    "requirements": "GIS, zoning, land use, parcels, addresses, ArcGIS Online, metadata, public sector data, and customer service.",
+    "salary_min": 48000,
+    "salary_max": 61000,
+    "date_posted": "2026-06-10"
+  },
+  {
+    "title": "Geospatial Data Analyst",
+    "company": "Piedmont Location Intelligence",
+    "location": "Charlotte, NC",
+    "remote_status": "hybrid",
+    "source": "Sample GIS Jobs",
+    "source_url": "https://example.com/piedmont-geospatial-analyst",
+    "apply_url": "https://example.com/piedmont-geospatial-analyst/apply",
+    "description": "Analyze real estate, transportation, demographic, and parcel datasets for location intelligence dashboards and site selection workflows.",
+    "requirements": "Python, SQL, PostGIS, GeoPandas, spatial analysis, dashboard development, land use data, and client-ready documentation.",
+    "salary_min": 65000,
+    "salary_max": 82000,
+    "date_posted": "2026-06-08"
+  },
+  {
+    "title": "Senior GIS Manager",
+    "company": "Metro Utilities Authority",
+    "location": "Raleigh, NC",
+    "remote_status": "onsite",
+    "source": "Sample GIS Jobs",
+    "source_url": "https://example.com/senior-gis-manager",
+    "apply_url": "https://example.com/senior-gis-manager/apply",
+    "description": "Lead enterprise GIS strategy, manage a GIS team, direct utility asset programs, and oversee budgets across multiple departments.",
+    "requirements": "Senior leadership, manager experience, 10+ years GIS, ArcGIS Enterprise administration, utilities, and director-level stakeholder management.",
+    "salary_min": 105000,
+    "salary_max": 132000,
+    "date_posted": "2026-06-01"
+  },
+  {
+    "title": "Transportation Planning Analyst",
+    "company": "Regional Mobility Council",
+    "location": "Charlotte, NC",
+    "remote_status": "hybrid",
+    "source": "Sample GIS Jobs",
+    "source_url": "https://example.com/transportation-planning-analyst",
+    "apply_url": "https://example.com/transportation-planning-analyst/apply",
+    "description": "Support corridor studies, transportation planning maps, open data dashboards, permit and parcel analysis, and spatial analysis for growth planning.",
+    "requirements": "Urban planning, transportation, GIS, ArcGIS Pro, web GIS, Python automation, public agency coordination, and data analyst experience.",
+    "salary_min": 60000,
+    "salary_max": 78000,
+    "date_posted": "2026-06-15"
+  }
+]

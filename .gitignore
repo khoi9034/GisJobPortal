@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.sqlite3
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env
+.env.local
+coverage/

@@ -1,0 +1,26 @@
+sources:
+  - name: Sample GIS Jobs
+    type: manual
+    url: data/sample_jobs.json
+    enabled: true
+    notes: Local sample jobs for MVP development and demos.
+  - name: NC Government Jobs
+    type: static_url
+    url: https://www.governmentjobs.com/careers/northcarolina
+    enabled: false
+    notes: Add API/RSS integration later if allowed by terms.
+  - name: City of Charlotte Jobs
+    type: static_url
+    url: https://www.charlottenc.gov/Services/Jobs
+    enabled: false
+    notes: Manual review source; no portal automation.
+  - name: Greenhouse Example
+    type: greenhouse
+    url: https://boards.greenhouse.io/example
+    enabled: false
+    notes: Placeholder for companies with public Greenhouse boards.
+  - name: Lever Example
+    type: lever
+    url: https://jobs.lever.co/example
+    enabled: false
+    notes: Placeholder for companies with public Lever boards.

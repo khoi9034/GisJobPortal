@@ -1,0 +1,62 @@
+name: Khoi Nguyen
+email: khoianhnguyen48@gmail.com
+location: Concord, NC
+portfolio: https://portfolio-gamma-six-p15gdz1e0v.vercel.app/
+education:
+  - school: UNC-Chapel Hill
+    degree: B.A. Geography, GIS minor
+    graduation: May 2026
+experience:
+  - title: GIS Analyst Intern
+    organization: Cabarrus County, NC
+    start: March 2026
+    highlights:
+      - ArcGIS Enterprise, Portal, ArcGIS Online, ArcGIS Hub, and ArcGIS Pro workflows
+      - Public GIS Open Data and GIS Hub organization
+      - Feature services, hosted layers, web maps, metadata, and public-facing GIS datasets
+      - Parcels, zoning, addresses, boundaries, planning layers, flood layers, school districts, and county datasets
+skills:
+  - ArcGIS Pro
+  - ArcGIS Enterprise
+  - Portal
+  - ArcGIS Online
+  - ArcGIS Hub
+  - ArcPy
+  - Python
+  - GeoPandas
+  - SQL
+  - PostGIS
+  - FastAPI
+  - Next.js
+  - TypeScript
+  - web maps
+  - metadata
+  - public GIS data
+projects:
+  - name: Cabarrus FutureScape
+    description: Parcel-based planning intelligence and digital twin project for growth, constraints, and future development analysis.
+target_roles:
+  - GIS Analyst
+  - GIS Technician
+  - Urban Planning Analyst
+  - Planning Technician
+  - Spatial Analyst
+  - Geospatial Analyst
+  - Land Use Analyst
+  - Transportation Planning Analyst
+  - Smart Cities / Digital Twin Analyst
+  - Public Sector Data Analyst
+  - Real Estate / Location Intelligence Analyst
+preferred_locations:
+  - Concord, NC
+  - Cabarrus County, NC
+  - Charlotte, NC
+  - North Carolina
+  - Remote
+writing_style_rules:
+  - Do not include a phone number.
+  - Do not include GitHub unless added later.
+  - Always include the portfolio link in generated application materials.
+  - Do not overclaim experience.
+  - Do not call Khoi an expert.
+  - Keep writing professional, clear, tailored, and concise.
