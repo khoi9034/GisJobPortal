@@ -10,7 +10,7 @@ from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import ai_status_endpoint, health
+from backend.app.api import ai_status_endpoint, health, sources as sources_endpoint
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -23,7 +23,7 @@ from backend.app.materials import format_material_context, generate_materials
 from backend.app.paths import api_env, cors_origins, database_path
 from backend.app.profile import load_profile
 from backend.app.scoring import score_job
-from backend.app.sources import load_sources
+from backend.app.sources import load_search_profiles, load_sources
 
 
 class MvpTests(unittest.TestCase):
@@ -99,6 +99,48 @@ class MvpTests(unittest.TestCase):
         sources = load_sources()
         self.assertTrue(any(source["type"] == "manual" and source["enabled"] for source in sources))
         self.assertTrue(all(source["type"] in {"api", "rss", "greenhouse", "lever", "static_url", "manual"} for source in sources))
+
+    def test_search_profile_loading(self):
+        profiles = load_search_profiles()
+        self.assertIn("gis_analyst_nc", profiles)
+        self.assertIn("GIS Analyst", profiles["gis_analyst_nc"]["keywords"])
+        self.assertTrue(profiles["planning_gis_nc"]["include_remote"])
+
+    def test_greenhouse_collector_normalizes_mock_response(self):
+        source = {
+            "name": "Example Greenhouse",
+            "type": "greenhouse",
+            "url": "https://boards.greenhouse.io/example",
+            "board_token": "example",
+            "company": "Example Co",
+            "enabled": True,
+        }
+        data = {"jobs": [{"title": "GIS Analyst", "updated_at": "2026-06-20T12:00:00Z", "location": {"name": "Charlotte, NC"}, "absolute_url": "https://boards.greenhouse.io/example/jobs/1", "content": "<p>ArcGIS and parcels</p>"}]}
+        with patch("backend.app.collectors.fetch_json", return_value=data):
+            jobs = collectors.collect_greenhouse(source)
+        self.assertEqual(jobs[0]["title"], "GIS Analyst")
+        self.assertEqual(jobs[0]["company"], "Example Co")
+        self.assertEqual(jobs[0]["source_updated_at"], "2026-06-20T12:00:00Z")
+        self.assertEqual(jobs[0]["source_posted_at"], "")
+        self.assertEqual(jobs[0]["freshness_confidence"], "first_seen_only")
+
+    def test_lever_collector_normalizes_mock_response(self):
+        source = {"name": "Example Lever", "type": "lever", "url": "https://jobs.lever.co/example", "site": "example", "company": "Example Co", "enabled": True}
+        data = [{"text": "Spatial Analyst", "hostedUrl": "https://jobs.lever.co/example/abc", "applyUrl": "https://jobs.lever.co/example/abc/apply", "categories": {"location": "Remote", "team": "GIS"}, "descriptionPlain": "Python GIS and ArcGIS", "lists": [{"content": "Planning and parcels"}]}]
+        with patch("backend.app.collectors.fetch_json", return_value=data):
+            jobs = collectors.collect_lever(source)
+        fresh = apply_freshness(jobs[0], checked_at="2026-06-20")
+        self.assertEqual(fresh["title"], "Spatial Analyst")
+        self.assertEqual(fresh["apply_url"], "https://jobs.lever.co/example/abc/apply")
+        self.assertEqual(fresh["source_posted_at"], "")
+        self.assertEqual(fresh["freshness_confidence"], "first_seen_only")
+        self.assertEqual(fresh["first_seen_at"], "2026-06-20")
+
+    def test_source_status_endpoint_includes_freshness_support_fields(self):
+        rows = sources_endpoint()
+        self.assertTrue(rows)
+        for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "last_checked_at", "last_error"]:
+            self.assertIn(field, rows[0])
 
     def test_usajobs_collector_normalizes_sample_response(self):
         source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}

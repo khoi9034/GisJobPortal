@@ -189,20 +189,20 @@ export default function DashboardPage({ view }: { view: View }) {
               <p key={source.name}>
                 <strong>{source.name}</strong> <span className="chip">{source.type}</span> <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span><br />
                 <span className="muted">{source.notes}</span>
-                {(source.last_checked || source.last_status) && (
+                {(source.last_checked_at || source.last_checked || source.last_status) && (
                   <>
                     <br />
                     <span className="muted">
-                      Last checked: {source.last_checked || "never"}{source.last_status ? ` - ${source.last_status}` : ""}
+                      Last checked: {source.last_checked_at || source.last_checked || "never"}{source.last_success_at ? ` | Last success: ${source.last_success_at}` : ""}
                     </span>
                   </>
                 )}
                 <br />
-                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0}{source.errors_last_run ? ` | Error: ${source.errors_last_run}` : ""}</span>
+                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
                 <div className="chips">
-                  {source.posted_date_supported && <span className="chip green">posted date</span>}
-                  {source.close_date_supported && <span className="chip green">close date</span>}
-                  {source.updated_date_supported && <span className="chip">updated date</span>}
+                  {(source.supports_posted_date || source.posted_date_supported) && <span className="chip green">posted date</span>}
+                  {(source.supports_close_date || source.close_date_supported) && <span className="chip green">close date</span>}
+                  {(source.supports_updated_date || source.updated_date_supported) && <span className="chip">updated date</span>}
                   {source.first_seen_only && <span className="chip">first seen only</span>}
                 </div>
               </p>

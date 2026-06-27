@@ -69,6 +69,18 @@ sources:
     enabled: false
     first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
+  - name: NC Department of Commerce Careers
+    type: manual
+    url: https://www.commerce.nc.gov/about-us/careers
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: NC OneMap GIS Source
+    type: manual
+    url: https://www.nconemap.gov/
+    enabled: false
+    first_seen_only: true
+    notes: GIS-related manual review placeholder, not a job scraper.
   - name: Esri Careers
     type: manual
     url: https://www.esri.com/en-us/about/careers/job-search
@@ -99,9 +111,71 @@ sources:
     enabled: false
     first_seen_only: true
     notes: Manual review source; no portal automation.
+  - name: Dewberry Careers
+    type: manual
+    url: https://www.dewberry.com/careers
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: Timmons Group Careers
+    type: manual
+    url: https://www.timmons.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: WithersRavenel Careers
+    type: manual
+    url: https://withersravenel.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: Stewart Careers
+    type: manual
+    url: https://www.stewartinc.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: McAdams Careers
+    type: manual
+    url: https://mcadamsco.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: Freese and Nichols Careers
+    type: manual
+    url: https://www.freese.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: SAM Companies Careers
+    type: manual
+    url: https://www.sam.biz/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: Woolpert Careers
+    type: manual
+    url: https://woolpert.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: NV5 Geospatial Careers
+    type: manual
+    url: https://www.nv5.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+  - name: Michael Baker International Careers
+    type: manual
+    url: https://mbakerintl.com/careers/
+    enabled: false
+    first_seen_only: true
+    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
   - name: Greenhouse Example
     type: greenhouse
     url: https://boards.greenhouse.io/example
+    board_token: example_token
+    company: Example Company
     enabled: false
     posted_date_supported: false
     close_date_supported: false
@@ -111,10 +185,12 @@ sources:
   - name: Lever Example
     type: lever
     url: https://jobs.lever.co/example
+    site: example
+    company: Example Company
     enabled: false
-    posted_date_supported: true
+    posted_date_supported: false
     close_date_supported: false
-    updated_date_supported: true
+    updated_date_supported: false
     first_seen_only: true
     notes: Placeholder for companies with public Lever boards.
   - name: Consulting Firm Manual Sources

@@ -107,7 +107,9 @@ def apply_freshness(
     first_seen = date_iso(first_seen_at or job.get("first_seen_at") or job.get("date_found")) or checked
     basis = parse_date(posted) or parse_date(first_seen)
     age = (today - basis).days if basis else None
-    confidence = "source_posted_date" if posted else "source_updated_date" if updated else "first_seen_only" if first_seen else "unknown"
+    confidence = job.get("freshness_confidence") or (
+        "source_posted_date" if posted else "source_updated_date" if updated else "first_seen_only" if first_seen else "unknown"
+    )
     close_date = parse_date(closes)
 
     return {

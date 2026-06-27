@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from html import unescape
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
@@ -22,6 +24,10 @@ USAJOBS_SEARCH_TERMS = [
     "Spatial Analyst",
     "Transportation Planning Analyst",
 ]
+
+
+def plain_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", unescape(str(value or "")))).strip()
 
 
 def normalize_job(raw: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
@@ -47,6 +53,7 @@ def normalize_job(raw: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]
         "source_posted_at": source_posted_at,
         "source_updated_at": raw.get("source_updated_at") or raw.get("updated_at", ""),
         "source_closes_at": raw.get("source_closes_at") or raw.get("closing_at", ""),
+        "freshness_confidence": raw.get("freshness_confidence", ""),
         "status": "new",
     }
 
@@ -119,6 +126,14 @@ def fetch_usajobs(term: str, source: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"USAJobs request failed: {getattr(exc, 'reason', exc)}") from exc
 
 
+def fetch_json(url: str) -> Any:
+    try:
+        with request.urlopen(url, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.URLError as exc:
+        raise RuntimeError(f"request failed: {getattr(exc, 'reason', exc)}") from exc
+
+
 def collect_usajobs(source: dict[str, Any]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     for term in source.get("search_terms") or USAJOBS_SEARCH_TERMS:
@@ -126,6 +141,73 @@ def collect_usajobs(source: dict[str, Any]) -> list[dict[str, Any]]:
         items = data.get("SearchResult", {}).get("SearchResultItems", [])
         jobs.extend(normalize_usajobs_item(item, source) for item in items)
     return jobs
+
+
+def board_token(source: dict[str, Any]) -> str:
+    token = source.get("board_token") or str(source.get("url", "")).rstrip("/").split("/")[-1]
+    if not token or token == "jobs":
+        raise RuntimeError("Greenhouse source requires board_token")
+    return token
+
+
+def normalize_greenhouse_job(item: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    location = item.get("location") or {}
+    return normalize_job(
+        {
+            "title": item.get("title", ""),
+            "company": source.get("company") or source["name"],
+            "location": location.get("name") if isinstance(location, dict) else str(location or ""),
+            "source_url": item.get("absolute_url", ""),
+            "apply_url": item.get("absolute_url", ""),
+            "description": plain_text(item.get("content", "")),
+            "source_updated_at": item.get("updated_at", ""),
+            "freshness_confidence": "first_seen_only",
+        },
+        source,
+    )
+
+
+def collect_greenhouse(source: dict[str, Any]) -> list[dict[str, Any]]:
+    url = f"https://boards-api.greenhouse.io/v1/boards/{parse.quote(board_token(source))}/jobs?content=true"
+    data = fetch_json(url)
+    return [normalize_greenhouse_job(item, source) for item in data.get("jobs", [])]
+
+
+def lever_site(source: dict[str, Any]) -> str:
+    site = source.get("site") or str(source.get("url", "")).rstrip("/").split("/")[-1]
+    if not site:
+        raise RuntimeError("Lever source requires site")
+    return site
+
+
+def normalize_lever_job(item: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    categories = item.get("categories") or {}
+    lists = "\n".join(plain_text(part.get("content", "")) for part in item.get("lists", []) if isinstance(part, dict))
+    description = "\n\n".join(
+        filter(None, [plain_text(item.get("descriptionPlain") or item.get("description")), lists, plain_text(item.get("additionalPlain"))])
+    )
+    return normalize_job(
+        {
+            "title": item.get("text", ""),
+            "company": source.get("company") or source["name"],
+            "location": categories.get("location", ""),
+            "remote_status": categories.get("workplaceType", ""),
+            "source_url": item.get("hostedUrl", ""),
+            "apply_url": item.get("applyUrl") or item.get("hostedUrl", ""),
+            "description": description,
+            "requirements": plain_text(item.get("additionalPlain", "")),
+            "freshness_confidence": "first_seen_only",
+        },
+        source,
+    )
+
+
+def collect_lever(source: dict[str, Any]) -> list[dict[str, Any]]:
+    site = parse.quote(lever_site(source))
+    data = fetch_json(f"https://api.lever.co/v0/postings/{site}?mode=json")
+    if not isinstance(data, list):
+        raise RuntimeError("Lever response was not a job list")
+    return [normalize_lever_job(item, source) for item in data]
 
 
 def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -139,6 +221,10 @@ def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
             return [normalize_job(item, source) for item in json.load(handle)]
     if source["type"] == "api" and source["name"].lower().startswith("usajobs"):
         return collect_usajobs(source)
+    if source["type"] == "greenhouse":
+        return collect_greenhouse(source)
+    if source["type"] == "lever":
+        return collect_lever(source)
     return []
 
 
@@ -151,6 +237,7 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
 
     new_jobs = duplicates = jobs_collected = jobs_scored = sources_checked = sources_skipped = marked_missing = 0
     errors: dict[str, str] = {}
+    source_results: list[dict[str, Any]] = []
     for source in sources:
         if not source.get("enabled", True):
             sources_skipped += 1
@@ -164,6 +251,7 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
             message = str(exc)
             errors[source["name"]] = message
             db.mark_source_checked(source["name"], f"error: {message}", db_path, jobs_found=0, error=message)
+            source_results.append({"name": source["name"], "collected": 0, "inserted": 0, "duplicates": 0, "error": message})
             continue
         jobs_collected += len(collected)
         inserted = source_duplicates = source_closed = 0
@@ -187,6 +275,9 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
             db_path,
             jobs_found=len(collected),
         )
+        source_results.append(
+            {"name": source["name"], "collected": len(collected), "inserted": inserted, "duplicates": source_duplicates, "error": ""}
+        )
 
     counts = db.freshness_counts(db_path)
     active_jobs = db.list_jobs(path=db_path, active_only=True)
@@ -206,6 +297,7 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
         "duplicates_updated": duplicates,
         "jobs_marked_missing_or_closed": marked_missing,
         "errors": errors,
+        "source_results": source_results,
         **counts,
         **bands,
     }

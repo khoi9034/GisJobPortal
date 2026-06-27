@@ -100,6 +100,8 @@ Supported source types:
 
 Disabled static sources are kept as review targets only. The app intentionally avoids LinkedIn/Indeed scraping and portal automation.
 
+`config/search_profiles.yaml` stores GIS/planning search profiles such as `gis_analyst_nc`, `planning_gis_nc`, `consulting_gis`, and `federal_gis`. These are simple keyword/location profiles for source tuning; scoring still decides which collected jobs rise to the top.
+
 ### USAJobs
 
 USAJobs is the first real API collector. It is disabled by default because USAJobs requires an API key and the email/user-agent used for that key.
@@ -122,9 +124,42 @@ updated_date_supported: false
 first_seen_only: false
 ```
 
+### Greenhouse
+
+Use public Greenhouse Job Board API sources only:
+
+```yaml
+- name: Example Greenhouse
+  type: greenhouse
+  url: https://boards.greenhouse.io/example
+  board_token: example
+  company: Example Company
+  enabled: false
+  updated_date_supported: true
+  first_seen_only: true
+```
+
+Greenhouse exposes `updated_at`; the app stores it as `source_updated_at`. It is not treated as `source_posted_at`, so freshness uses `first_seen_at` unless a true posted date is available.
+
+### Lever
+
+Use public Lever Postings API sources only:
+
+```yaml
+- name: Example Lever
+  type: lever
+  url: https://jobs.lever.co/example
+  site: example
+  company: Example Company
+  enabled: false
+  first_seen_only: true
+```
+
+Lever postings are normalized from the public JSON endpoint. If no reliable posted date is present, freshness uses `first_seen_at`.
+
 ### Manual Sources
 
-Manual career-page sources are for human review and copy/paste intake only. To add one safely, add a disabled `manual` source with the career page URL and notes. Do not automate LinkedIn, Indeed, Workday, login-gated portals, or application submission.
+Manual career-page sources are for human review and copy/paste intake only. To add one safely, add a disabled `manual` source with the career page URL and notes. Do not automate LinkedIn, Indeed, Workday, login-gated portals, or application submission; those sources do not provide a safe public ATS endpoint for this MVP.
 
 ## Private Documents
 

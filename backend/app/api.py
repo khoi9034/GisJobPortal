@@ -58,10 +58,14 @@ class SourceIn(BaseModel):
     url: str
     enabled: bool = True
     notes: str = ""
+    board_token: str | None = None
+    site: str | None = None
+    company: str | None = None
     posted_date_supported: bool = False
     close_date_supported: bool = False
     updated_date_supported: bool = False
     first_seen_only: bool = True
+    freshness_confidence_default: str | None = None
 
 
 def ensure_seeded() -> None:
@@ -226,7 +230,7 @@ def profile() -> dict[str, Any]:
 @app.post("/sources")
 def add_source(source: SourceIn) -> dict[str, Any]:
     try:
-        saved = save_source(source.model_dump())
+        saved = save_source(source.model_dump(exclude_none=True))
         db.upsert_source(saved)
         return saved
     except ValueError as exc:

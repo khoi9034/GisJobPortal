@@ -78,12 +78,19 @@ export type Source = {
   notes: string;
   last_checked?: string;
   last_status?: string;
+  last_checked_at?: string;
+  last_success_at?: string;
+  last_error?: string;
   jobs_found_last_run?: number;
   errors_last_run?: string;
   posted_date_supported?: boolean;
   close_date_supported?: boolean;
   updated_date_supported?: boolean;
   first_seen_only?: boolean;
+  supports_posted_date?: boolean;
+  supports_close_date?: boolean;
+  supports_updated_date?: boolean;
+  freshness_confidence_default?: string;
 };
 
 export type Stats = {
@@ -241,6 +248,9 @@ function demoApi<T>(path: string, init?: RequestInit): T {
         enabled: true,
         notes: "Bundled frontend demo data",
         last_checked: "",
+        last_checked_at: "",
+        last_success_at: "",
+        last_error: "",
         last_status: "demo mode",
         jobs_found_last_run: demoJobs.length,
         errors_last_run: "",
@@ -248,6 +258,10 @@ function demoApi<T>(path: string, init?: RequestInit): T {
         close_date_supported: false,
         updated_date_supported: false,
         first_seen_only: false,
+        supports_posted_date: true,
+        supports_close_date: false,
+        supports_updated_date: false,
+        freshness_confidence_default: "source_posted_date",
       },
     ] as T;
   }

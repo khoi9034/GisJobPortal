@@ -159,6 +159,7 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 notes TEXT DEFAULT '',
                 last_checked TEXT DEFAULT '',
                 last_status TEXT DEFAULT '',
+                last_success_at TEXT DEFAULT '',
                 jobs_found_last_run INTEGER NOT NULL DEFAULT 0,
                 errors_last_run TEXT DEFAULT '',
                 posted_date_supported INTEGER NOT NULL DEFAULT 0,
@@ -226,6 +227,7 @@ def ensure_source_columns(conn: sqlite3.Connection) -> None:
     additions = {
         "last_checked": "TEXT DEFAULT ''",
         "last_status": "TEXT DEFAULT ''",
+        "last_success_at": "TEXT DEFAULT ''",
         "jobs_found_last_run": "INTEGER NOT NULL DEFAULT 0",
         "errors_last_run": "TEXT DEFAULT ''",
         "posted_date_supported": "INTEGER NOT NULL DEFAULT 0",
@@ -299,15 +301,17 @@ def mark_source_checked(
 ) -> None:
     init_db(path)
     with connection(path) as conn:
+        success_at = datetime.now(UTC).isoformat() if not error and status.startswith("ok:") else None
         conn.execute(
             """
             UPDATE job_sources
             SET last_checked = ?, last_status = ?,
+                last_success_at = COALESCE(?, last_success_at),
                 jobs_found_last_run = COALESCE(?, jobs_found_last_run),
                 errors_last_run = ?
             WHERE name = ?
             """,
-            (datetime.now(UTC).isoformat(), status, jobs_found, error, name),
+            (datetime.now(UTC).isoformat(), status, success_at, jobs_found, error, name),
         )
 
 
@@ -316,7 +320,21 @@ def list_sources(path: Path | str = DB_PATH) -> list[dict[str, Any]]:
     with connection(path) as conn:
         rows = conn.execute("SELECT * FROM job_sources ORDER BY name").fetchall()
     bool_fields = {"enabled", "posted_date_supported", "close_date_supported", "updated_date_supported", "first_seen_only"}
-    return [{**dict(row), **{field: bool(row[field]) for field in bool_fields if field in row.keys()}} for row in rows]
+    sources = []
+    for row in rows:
+        item = {**dict(row), **{field: bool(row[field]) for field in bool_fields if field in row.keys()}}
+        item.update(
+            {
+                "supports_posted_date": item.get("posted_date_supported", False),
+                "supports_close_date": item.get("close_date_supported", False),
+                "supports_updated_date": item.get("updated_date_supported", False),
+                "freshness_confidence_default": "first_seen_only" if item.get("first_seen_only") else "source_posted_date",
+                "last_checked_at": item.get("last_checked", ""),
+                "last_error": item.get("errors_last_run", ""),
+            }
+        )
+        sources.append(item)
+    return sources
 
 
 def duplicate_key(job: dict[str, Any]) -> tuple[str, str, str, str]:
