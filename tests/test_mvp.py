@@ -1,9 +1,16 @@
 import tempfile
 import unittest
+import os
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 from backend.app import db
+from backend.app.ai.base import MissingAPIKeyError
+from backend.app.ai.openrouter_client import OpenRouterClient
+from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
+from backend.app.ai.service import ai_status
+from backend.app.api import ai_status_endpoint
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -55,8 +62,9 @@ class MvpTests(unittest.TestCase):
 
     def test_material_generation_prompt_formatting(self):
         scored_job = {**self.job, **score_job(self.job, self.profile)}
-        materials = generate_materials(scored_job, self.profile)
-        context = format_material_context(scored_job, self.profile)
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            materials = generate_materials(scored_job, self.profile)
+            context = format_material_context(scored_job, self.profile)
         combined = "\n".join([context, materials["cover_letter"], materials["followup_email"]])
         self.assertIn(self.profile["portfolio"], combined)
         self.assertIn("Application Follow-Up", materials["followup_email"])
@@ -125,18 +133,79 @@ class MvpTests(unittest.TestCase):
     def test_packet_includes_portfolio_and_document_checklist(self):
         scored_job = {"id": 7, **self.job, **score_job(self.job, self.profile)}
         checklist = detect_document_checklist(scored_job)
-        files = build_packet_files(scored_job, self.profile, "Cabarrus County GIS Analyst Intern", "", checklist)
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            files = build_packet_files(scored_job, self.profile, "Cabarrus County GIS Analyst Intern", "", checklist)
         combined = "\n".join(files.values())
         self.assertIn(self.profile["portfolio"], combined)
         self.assertIn("required_documents_checklist.md", files)
 
     def test_generated_materials_do_not_include_phone_or_invent_experience(self):
         job = {**self.job, "requirements": "Drone mapping and AutoCAD required."}
-        materials = generate_materials(job, self.profile, "Cabarrus County GIS Analyst Intern")
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            materials = generate_materials(job, self.profile, "Cabarrus County GIS Analyst Intern")
         combined = "\n".join(str(value) for value in materials.values())
         self.assertNotRegex(combined, r"\b\d{3}[-.) ]?\d{3}[-. ]?\d{4}\b")
         self.assertNotIn("drone", combined.lower())
         self.assertNotIn("autocad", combined.lower())
+
+    def test_ai_status_endpoint_does_not_expose_key(self):
+        with patch.dict(os.environ, {"AI_PROVIDER": "openrouter", "AI_MODEL": "openrouter/pony-alpha", "OPENROUTER_API_KEY": "dummy-openrouter-key"}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            status = ai_status_endpoint()
+        self.assertEqual(status["mode"], "pony_alpha")
+        self.assertNotIn("dummy-openrouter-key", json.dumps(status))
+
+    def test_missing_openrouter_key_uses_template_fallback(self):
+        with patch.dict(os.environ, {"AI_PROVIDER": "openrouter", "AI_MODEL": "openrouter/pony-alpha", "OPENROUTER_API_KEY": ""}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            status = ai_status()
+            materials = generate_materials(self.job, self.profile)
+        self.assertFalse(status["configured"])
+        self.assertEqual(status["mode"], "template_fallback")
+        self.assertEqual(materials["generation_mode"], "template_fallback")
+
+    def test_configured_provider_reports_pony_alpha(self):
+        with patch.dict(os.environ, {"AI_PROVIDER": "openrouter", "AI_MODEL": "openrouter/pony-alpha", "OPENROUTER_API_KEY": "dummy-openrouter-key"}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            status = ai_status()
+        self.assertTrue(status["configured"])
+        self.assertEqual(status["mode"], "pony_alpha")
+        self.assertEqual(status["model"], "openrouter/pony-alpha")
+
+    def test_generated_prompts_do_not_include_private_paths_or_env_content(self):
+        dirty_resume = r"C:\Users\khoia\OneDrive\Documents\GisJobPortal\private\resume\resume_extracted.md OPENROUTER_API_KEY=secret .env.local"
+        context = safe_generation_context(self.job, self.profile, dirty_resume, "")
+        prompt = materials_user_prompt(context)
+        self.assertNotIn("resume_extracted.md", prompt)
+        self.assertNotIn(".env.local", prompt)
+        self.assertNotIn("OPENROUTER_API_KEY", prompt)
+        self.assertNotIn("secret", prompt.lower())
+        self.assertNotIn("C:\\Users", prompt)
+
+    def test_generated_prompts_skip_transcript_unless_allowed(self):
+        context = safe_generation_context(self.job, self.profile, "resume summary", "")
+        prompt = materials_user_prompt(context)
+        self.assertNotIn("Academic Transcript Secret Text", prompt)
+        relevant_job = {**self.job, "requirements": "Unofficial transcript required with GPA."}
+        allowed_context = safe_generation_context(relevant_job, self.profile, "resume summary", "Academic Transcript Secret Text")
+        allowed_prompt = materials_user_prompt(allowed_context)
+        self.assertIn("Academic Transcript Secret Text", allowed_prompt)
+
+    def test_openrouter_client_handles_missing_key_cleanly(self):
+        with self.assertRaises(MissingAPIKeyError):
+            OpenRouterClient(api_key="")
+
+    def test_openrouter_client_parses_mock_response(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"choices":[{"message":{"content":"hello"}}]}'
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse()):
+            client = OpenRouterClient(api_key="dummy-openrouter-key", model="openrouter/pony-alpha")
+            self.assertEqual(client.generate_text("system", "user"), "hello")
 
 
 if __name__ == "__main__":

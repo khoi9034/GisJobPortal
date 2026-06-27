@@ -105,6 +105,31 @@ This creates `private/transcript/transcript_summary.md`. The transcript summary 
 
 `private/`, `*.pdf`, `*.docx`, and `generated/application_packets/` are ignored by Git except placeholder files. Do not commit private documents. Generated application packets stay local. Review all materials before submitting applications.
 
+## Using Pony Alpha / OpenRouter
+
+The backend can use Pony Alpha through OpenRouter for application packet writing. The frontend never receives the OpenRouter key.
+
+Create `backend/.env` locally:
+
+```text
+AI_PROVIDER=openrouter
+AI_MODEL=openrouter/pony-alpha
+OPENROUTER_API_KEY=replace_with_your_local_secret
+DATABASE_URL=sqlite:///./gis_apply.db
+API_ENV=local
+CORS_ORIGINS=http://localhost:3000,https://gis-job-portal.vercel.app
+```
+
+Do not commit `backend/.env`. If `OPENROUTER_API_KEY` is missing or still a placeholder, the backend uses the template fallback generator.
+
+Check mode:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/ai/status
+```
+
+Only sanitized profile/config text, sanitized resume summary text, job details, scoring, missing skills, and the portfolio link are sent to the AI provider. Raw PDFs, transcripts, `.env` files, private folder paths, tokens, and generated packet history are not sent.
+
 ## Tests
 
 ```powershell

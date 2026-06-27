@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import db
+from .ai.service import ai_status
 from .collectors import refresh_jobs
 from .documents import (
     extract_resume,
@@ -108,6 +109,11 @@ def application_packet_generate(job_id: int) -> dict[str, Any]:
         return generate_application_packet(job_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/ai/status")
+def ai_status_endpoint() -> dict[str, object]:
+    return ai_status()
 
 
 @app.get("/jobs/{job_id}/application-packet")

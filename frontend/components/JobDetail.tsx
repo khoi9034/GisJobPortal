@@ -43,7 +43,7 @@ export default function JobDetail({ id }: { id: string }) {
     const row = await api<ApplicationPacket>(`/jobs/${id}/generate-application-packet`, { method: "POST" });
     setPacket(row);
     setChecklist(row.document_checklist || {});
-    setMessage("Application packet generated.");
+    setMessage(row.generation_mode === "pony_alpha" ? "Generated with Pony Alpha." : "Generated with template fallback.");
     await load();
   }
 
@@ -187,6 +187,7 @@ function PacketView({ packet }: { packet: ApplicationPacket | null }) {
   return (
     <section>
       <h3>Application Packet</h3>
+      <p className="muted">{packet.generation_mode === "pony_alpha" ? "Generated with Pony Alpha" : "Generated with template fallback"}</p>
       <p className="muted">{packet.packet_dir}</p>
       {Object.entries(packet.files).map(([name, content]) => (
         <details key={name}>

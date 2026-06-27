@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, Job, Stats } from "../lib/api";
+import { api, AiStatus, Job, Stats } from "../lib/api";
 
 type View = "overview" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 
@@ -64,19 +64,22 @@ export default function DashboardPage({ view }: { view: View }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [message, setMessage] = useState("");
 
   async function load() {
-    const [jobRows, overview, sourceRows, profileRow] = await Promise.all([
+    const [jobRows, overview, sourceRows, profileRow, aiRow] = await Promise.all([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
       api<any[]>("/sources"),
       api<any>("/profile"),
+      api<AiStatus>("/ai/status"),
     ]);
     setJobs(jobRows);
     setStats(overview);
     setSources(sourceRows);
     setProfile(profileRow);
+    setAiStatus(aiRow);
   }
 
   useEffect(() => {
@@ -140,6 +143,17 @@ export default function DashboardPage({ view }: { view: View }) {
                 <span className="muted">{source.notes}</span>
               </p>
             ))}
+          </section>
+          <section className="settings-section">
+            <h3>AI Settings</h3>
+            {aiStatus ? (
+              <>
+                <p><strong>AI Provider:</strong> OpenRouter</p>
+                <p><strong>Model:</strong> Pony Alpha</p>
+                <p><strong>Status:</strong> {aiStatus.configured ? "Connected" : "Template fallback"}</p>
+                <p className="muted">Private resume/transcript files are not sent automatically.</p>
+              </>
+            ) : <p className="muted">Loading AI status...</p>}
           </section>
         </div>
       </Shell>

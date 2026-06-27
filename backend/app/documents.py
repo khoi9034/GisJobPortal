@@ -168,24 +168,23 @@ def build_packet_files(
     resume_text: str,
     transcript_text: str,
     checklist: dict[str, Any],
+    materials: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    materials = generate_materials(job, profile, resume_text, transcript_text)
-    notes = [
-        "# Application Notes",
-        "",
-        "Review every material before submitting. This app does not auto-submit applications.",
-        f"Portfolio included: {profile['portfolio']}",
-        f"Resume source: {'private/resume/resume_extracted.md' if resume_text else 'config/profile.yaml fallback'}",
-        f"Transcript summary used: {'yes' if transcript_text else 'no'}",
-    ]
+    materials = materials or generate_materials(job, profile, resume_text, transcript_text, checklist)
+    notes = materials.get("application_notes") or (
+        "Review every material before submitting. This app does not auto-submit applications.\n"
+        f"Portfolio included: {profile['portfolio']}\n"
+        f"Resume summary available: {'yes' if resume_text else 'no'}\n"
+        f"Transcript summary used: {'yes' if transcript_text else 'no'}"
+    )
     return {
         "cover_letter.md": materials["cover_letter"],
         "followup_email.md": materials["followup_email"],
         "recruiter_message.md": materials["recruiter_message"],
-        "resume_angle.md": job.get("recommended_resume_angle") or "Lead with Cabarrus County GIS, public GIS data, and ArcGIS Enterprise work.",
+        "resume_angle.md": materials.get("resume_angle") or job.get("recommended_resume_angle") or "Lead with Cabarrus County GIS, public GIS data, and ArcGIS Enterprise work.",
         "resume_bullet_suggestions.md": "# Resume Bullet Suggestions\n\n" + "\n".join(f"- {item}" for item in materials["resume_bullets"]) + "\n",
-        "required_documents_checklist.md": checklist_markdown(checklist),
-        "application_notes.md": "\n".join(notes) + "\n",
+        "required_documents_checklist.md": materials.get("required_documents_checklist") or checklist_markdown(checklist),
+        "application_notes.md": notes if notes.startswith("#") else f"# Application Notes\n\n{notes}\n",
     }
 
 
@@ -200,13 +199,14 @@ def generate_application_packet(job_id: int) -> dict[str, Any]:
     if not job:
         raise LookupError(f"Job {job_id} not found")
     profile = load_profile()
-    resume_text = resume_summary()["text"]
-    transcript_text = transcript_summary()["text"] if should_use_transcript(job) else ""
     checklist = {**detect_document_checklist(job), **(job.get("document_checklist") or {})}
-    files = build_packet_files(job, profile, resume_text, transcript_text, checklist)
+    resume_text = resume_summary()["text"]
+    use_transcript = bool(checklist.get("transcript_required")) or should_use_transcript(job)
+    transcript_text = transcript_summary()["text"] if use_transcript else ""
+    materials = generate_materials(job, profile, resume_text, transcript_text, checklist)
+    files = build_packet_files(job, profile, resume_text, transcript_text, checklist, materials)
     packet_dir = packet_dir_for(job)
     write_packet(packet_dir, files)
-    materials = generate_materials(job, profile, resume_text, transcript_text)
     db.update_job_fields(
         job_id,
         {
@@ -216,11 +216,18 @@ def generate_application_packet(job_id: int) -> dict[str, Any]:
             "generated_followup_email": materials["followup_email"],
             "recruiter_message": materials["recruiter_message"],
             "resume_bullet_suggestions": materials["resume_bullets"],
+            "recommended_resume_angle": materials.get("resume_angle") or job.get("recommended_resume_angle", ""),
             "application_packet_dir": str(packet_dir),
             "document_checklist": checklist,
         },
     )
-    return {"job_id": job_id, "packet_dir": str(packet_dir), "files": files, "document_checklist": checklist}
+    return {
+        "job_id": job_id,
+        "packet_dir": str(packet_dir),
+        "files": files,
+        "document_checklist": checklist,
+        "generation_mode": materials.get("generation_mode", "template_fallback"),
+    }
 
 
 def get_application_packet(job_id: int) -> dict[str, Any]:
@@ -231,4 +238,11 @@ def get_application_packet(job_id: int) -> dict[str, Any]:
     files = {}
     if packet_dir.exists():
         files = {path.name: path.read_text(encoding="utf-8") for path in sorted(packet_dir.glob("*.md"))}
-    return {"job_id": job_id, "exists": bool(files), "packet_dir": str(packet_dir), "files": files, "document_checklist": job.get("document_checklist") or detect_document_checklist(job)}
+    return {
+        "job_id": job_id,
+        "exists": bool(files),
+        "packet_dir": str(packet_dir),
+        "files": files,
+        "document_checklist": job.get("document_checklist") or detect_document_checklist(job),
+        "generation_mode": "template_fallback",
+    }

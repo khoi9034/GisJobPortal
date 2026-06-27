@@ -49,6 +49,14 @@ export type ApplicationPacket = {
   packet_dir: string;
   files: Record<string, string>;
   document_checklist: DocumentChecklist;
+  generation_mode: "pony_alpha" | "template_fallback";
+};
+
+export type AiStatus = {
+  provider: string;
+  model: string;
+  configured: boolean;
+  mode: "pony_alpha" | "template_fallback";
 };
 
 export type Stats = {
@@ -166,7 +174,7 @@ function demoPacket(job: Job): ApplicationPacket {
     "required_documents_checklist.md": "- [x] Resume required\n- [ ] Transcript required\n- [x] Portfolio link included",
     "application_notes.md": "Review every material before submitting. This deployed demo does not connect to private local documents.",
   };
-  return { job_id: job.id, exists: true, packet_dir: "demo", files, document_checklist: job.document_checklist };
+  return { job_id: job.id, exists: true, packet_dir: "demo", files, document_checklist: job.document_checklist, generation_mode: "template_fallback" };
 }
 
 function demoApi<T>(path: string, init?: RequestInit): T {
@@ -177,6 +185,7 @@ function demoApi<T>(path: string, init?: RequestInit): T {
   if (path === "/stats/overview") return demoStats() as T;
   if (path === "/sources") return [{ name: "Demo Jobs", type: "manual", url: "demo", enabled: true, notes: "Bundled frontend demo data" }] as T;
   if (path === "/profile") return { name: "Khoi Nguyen", portfolio: "https://portfolio-gamma-six-p15gdz1e0v.vercel.app/", skills: ["ArcGIS Pro", "ArcGIS Enterprise", "Python", "SQL"] } as T;
+  if (path === "/ai/status") return { provider: "openrouter", model: "openrouter/pony-alpha", configured: false, mode: "template_fallback" } as T;
   if (path.includes("/application-packet") || path.includes("/generate-application-packet")) return demoPacket(job) as T;
   if (jobMatch && method !== "GET") {
     if (path.endsWith("/status") && init?.body) job.status = JSON.parse(String(init.body)).status;
