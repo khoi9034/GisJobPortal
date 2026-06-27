@@ -99,6 +99,15 @@ freshness:
 
 For daily local automation, see `docs/DAILY_AUTOMATION_SETUP.md`.
 
+## Testing a Real Application Packet
+
+```powershell
+python scripts\refresh_jobs.py
+python scripts\qa_application_packet.py
+```
+
+Open Daily Review, pick a high-match job, generate the packet, and review every file before applying manually outside the app. The QA command uses the best current active USAJobs job, checks the generated packet for obvious safety/quality issues, and keeps generated packet files local.
+
 ## Add Job Sources
 
 Edit `config/sources.yaml` or use `POST /sources`.

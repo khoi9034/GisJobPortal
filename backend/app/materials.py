@@ -25,6 +25,23 @@ def format_material_context(
     )
 
 
+def job_focus(job: dict[str, Any]) -> str:
+    text = " ".join(str(job.get(key, "")) for key in ["title", "description", "requirements", "fit_summary"]).lower()
+    focus = []
+    if "arcgis" in text or "portal" in text:
+        focus.append("ArcGIS Enterprise/Portal, ArcGIS Online, and web GIS")
+    if "python" in text or "sql" in text or "automation" in text or "scripting" in text:
+        focus.append("Python/SQL automation")
+    if "spatial" in text or "geospatial" in text:
+        focus.append("spatial analysis and geospatial data stewardship")
+    if any(word in text for word in ["parcel", "zoning", "planning", "land use"]):
+        focus.append("parcels, zoning, and planning data")
+    focus = focus[:3]
+    if len(focus) > 1:
+        return f"{', '.join(focus[:-1])}, and {focus[-1]}"
+    return focus[0] if focus else "GIS data workflows"
+
+
 def template_materials(
     job: dict[str, Any],
     profile: dict[str, Any],
@@ -36,12 +53,13 @@ def template_materials(
     portfolio = profile["portfolio"]
     fit_summary = job.get("fit_summary") or "This role connects with Khoi's GIS, planning data, and ArcGIS workflow experience."
     resume_angle = job.get("recommended_resume_angle") or "Lead with county GIS, public GIS data, and ArcGIS Enterprise work."
+    focus = job_focus(job)
 
     cover_letter = f"""Dear {company} Hiring Team,
 
-I am excited to apply for the {title} role. I am completing a B.A. in Geography with a GIS minor at UNC-Chapel Hill and currently work as a GIS Analyst Intern with Cabarrus County, where I support ArcGIS Enterprise/Portal, ArcGIS Online, feature services, metadata, public GIS data, parcels, zoning, addresses, and planning-related datasets.
+I am applying for the {title} role because it connects directly with {focus}. I am completing a B.A. in Geography with a GIS minor at UNC-Chapel Hill and currently work as a GIS Analyst Intern with Cabarrus County, where I support ArcGIS Enterprise/Portal, ArcGIS Online, ArcGIS Hub, feature services, metadata, public GIS data, parcels, zoning, addresses, and planning-related datasets.
 
-The role stands out because {fit_summary.lower()} I would bring hands-on county GIS experience, careful public data stewardship, and practical Python/SQL automation skills. I am also building Cabarrus FutureScape, a parcel-based planning intelligence project focused on growth, constraints, and future development analysis.
+At Cabarrus County, my work has centered on careful public GIS data stewardship, publishing and organizing GIS layers, and making planning-related data easier to use. That background fits this posting's emphasis on {focus}, and I would bring a practical local-government GIS perspective with a clear readiness to keep learning. I am also building Cabarrus FutureScape, a parcel-based planning intelligence project focused on growth, constraints, and future development analysis.
 
 Portfolio: {portfolio}
 
@@ -63,7 +81,7 @@ Best,
 
     recruiter_message = (
         f"Hi {company} team, I applied for the {title} role and wanted to share my portfolio: {portfolio}. "
-        "My background combines county GIS, ArcGIS Enterprise/Portal, public GIS datasets, parcels, zoning, "
+        "My background combines Cabarrus County GIS, ArcGIS Enterprise/Portal, ArcGIS Online/Hub, public GIS datasets, parcels, zoning, "
         "planning data, and Python/SQL automation. I would be glad to share more if helpful."
     )
 
@@ -71,7 +89,7 @@ Best,
         "Supported Cabarrus County GIS workflows across ArcGIS Enterprise/Portal, ArcGIS Online, feature services, web maps, and metadata.",
         "Organized public GIS data and GIS Hub/Open Data workflows for parcels, zoning, addresses, boundaries, and planning-related layers.",
         "Built Cabarrus FutureScape, a parcel-based planning intelligence project for growth, constraints, and future development analysis.",
-        resume_angle,
+        f"Position resume summary around {focus} while keeping claims tied to current Cabarrus County intern work.",
     ]
 
     return {

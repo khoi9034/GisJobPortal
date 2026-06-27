@@ -7,7 +7,7 @@ from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import setup_usajobs, source_toggle
+from scripts import qa_application_packet, setup_usajobs, source_toggle
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -538,6 +538,27 @@ class MvpTests(unittest.TestCase):
         combined = "\n".join(files.values())
         self.assertIn(self.profile["portfolio"], combined)
         self.assertIn("required_documents_checklist.md", files)
+
+    def test_template_packet_quality_basics(self):
+        scored_job = {"id": 7, **self.job, **score_job(self.job, self.profile)}
+        checklist = detect_document_checklist(scored_job)
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            files = build_packet_files(scored_job, self.profile, r"C:\Dev\GisJobPortal\private\resume\resume_extracted.md", "", checklist)
+        combined = "\n".join(files.values())
+        self.assertIn(self.profile["portfolio"], combined)
+        self.assertIn("Cabarrus County", combined)
+        self.assertNotRegex(combined, r"\b\d{3}[-.) ]?\d{3}[-. ]?\d{4}\b")
+        self.assertNotIn("expert", combined.lower())
+        self.assertNotIn("github", combined.lower())
+        self.assertNotIn("resume_extracted.md", combined)
+        self.assertNotIn("strong arcgis and web gis overlap uses", files["cover_letter.md"].lower())
+        self.assertLess(len(files["followup_email.md"]), len(files["cover_letter.md"]))
+        self.assertEqual(qa_application_packet.quality_checks(scored_job, {"files": files, "document_checklist": checklist}, self.profile), [])
+
+    def test_checklist_flags_transcript_only_when_posting_requires_it(self):
+        self.assertFalse(detect_document_checklist(self.job)["transcript_required"])
+        relevant = {**self.job, "requirements": "Unofficial transcript required with GPA and relevant coursework."}
+        self.assertTrue(detect_document_checklist(relevant)["transcript_required"])
 
     def test_generated_materials_do_not_include_phone_or_invent_experience(self):
         job = {**self.job, "requirements": "Drone mapping and AutoCAD required."}
