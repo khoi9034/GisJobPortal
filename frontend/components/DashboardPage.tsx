@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, AiStatus, Job, Source, Stats } from "../lib/api";
 
 type View = "overview" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
+type FreshnessFilter = "active" | "fresh" | "last30" | "include_stale" | "closing" | "unknown";
 
 const nav = [
   ["overview", "/", "Overview"],
@@ -49,14 +50,60 @@ function Shell({ view, children }: { view: View; children: React.ReactNode }) {
   );
 }
 
-function filterJobs(jobs: Job[], view: View) {
-  if (view === "new") return jobs.filter((job) => job.status === "new");
-  if (view === "best") return jobs.filter((job) => job.match_score >= 75 && job.status !== "skipped");
-  if (view === "saved") return jobs.filter((job) => job.status === "saved");
-  if (view === "applied") return jobs.filter((job) => job.status === "applied");
-  if (view === "follow") return jobs.filter((job) => job.status === "follow_up_needed");
-  if (view === "skipped") return jobs.filter((job) => job.status === "skipped");
-  return jobs;
+const FRESH_DAYS = 14;
+const LAST_30_DAYS = 30;
+const HIDE_AFTER_DAYS = 45;
+const CLOSING_SOON_DAYS = 7;
+
+function parseDate(value?: string) {
+  return value ? new Date(`${value.slice(0, 10)}T00:00:00`) : null;
+}
+
+function daysUntil(value?: string) {
+  const date = parseDate(value);
+  if (!date) return null;
+  return Math.ceil((date.getTime() - Date.now()) / 86400000);
+}
+
+function age(job: Job) {
+  return job.posting_age_days ?? null;
+}
+
+function isClosingSoon(job: Job) {
+  const days = daysUntil(job.source_closes_at);
+  return days !== null && days >= 0 && days <= CLOSING_SOON_DAYS;
+}
+
+function isActive(job: Job, includeStale: boolean) {
+  const jobAge = age(job);
+  if (job.is_closed_or_missing) return false;
+  return includeStale || jobAge === null || jobAge <= HIDE_AFTER_DAYS || job.match_score >= 85;
+}
+
+function sortJobs(jobs: Job[]) {
+  return [...jobs].sort((a, b) => {
+    const posted = (parseDate(b.source_posted_at || b.date_posted)?.getTime() || 0) - (parseDate(a.source_posted_at || a.date_posted)?.getTime() || 0);
+    const closeA = parseDate(a.source_closes_at)?.getTime() || Number.MAX_SAFE_INTEGER;
+    const closeB = parseDate(b.source_closes_at)?.getTime() || Number.MAX_SAFE_INTEGER;
+    const firstSeen = (parseDate(b.first_seen_at || b.date_found)?.getTime() || 0) - (parseDate(a.first_seen_at || a.date_found)?.getTime() || 0);
+    return b.match_score - a.match_score || posted || closeA - closeB || firstSeen;
+  });
+}
+
+function filterJobs(jobs: Job[], view: View, freshness: FreshnessFilter) {
+  const includeStale = freshness === "include_stale";
+  let rows = jobs.filter((job) => isActive(job, includeStale));
+  if (view === "new") rows = rows.filter((job) => job.status === "new");
+  if (view === "best") rows = rows.filter((job) => job.match_score >= 75 && job.status !== "skipped");
+  if (view === "saved") rows = rows.filter((job) => job.status === "saved");
+  if (view === "applied") rows = rows.filter((job) => job.status === "applied");
+  if (view === "follow") rows = rows.filter((job) => job.status === "follow_up_needed");
+  if (view === "skipped") rows = rows.filter((job) => job.status === "skipped");
+  if (freshness === "fresh") rows = rows.filter((job) => age(job) !== null && age(job)! <= FRESH_DAYS);
+  if (freshness === "last30") rows = rows.filter((job) => age(job) !== null && age(job)! <= LAST_30_DAYS);
+  if (freshness === "closing") rows = rows.filter(isClosingSoon);
+  if (freshness === "unknown") rows = rows.filter((job) => !job.source_posted_at && job.freshness_confidence !== "source_posted_date");
+  return sortJobs(rows);
 }
 
 export default function DashboardPage({ view }: { view: View }) {
@@ -65,6 +112,7 @@ export default function DashboardPage({ view }: { view: View }) {
   const [sources, setSources] = useState<Source[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [freshness, setFreshness] = useState<FreshnessFilter>("active");
   const [message, setMessage] = useState("");
 
   async function load() {
@@ -86,7 +134,7 @@ export default function DashboardPage({ view }: { view: View }) {
     load().catch((error) => setMessage(error.message));
   }, []);
 
-  const visibleJobs = useMemo(() => filterJobs(jobs, view), [jobs, view]);
+  const visibleJobs = useMemo(() => filterJobs(jobs, view, freshness), [jobs, view, freshness]);
 
   async function refreshJobs() {
     const result = await api<Record<string, number>>("/jobs/refresh", { method: "POST" });
@@ -149,6 +197,14 @@ export default function DashboardPage({ view }: { view: View }) {
                     </span>
                   </>
                 )}
+                <br />
+                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0}{source.errors_last_run ? ` | Error: ${source.errors_last_run}` : ""}</span>
+                <div className="chips">
+                  {source.posted_date_supported && <span className="chip green">posted date</span>}
+                  {source.close_date_supported && <span className="chip green">close date</span>}
+                  {source.updated_date_supported && <span className="chip">updated date</span>}
+                  {source.first_seen_only && <span className="chip">first seen only</span>}
+                </div>
               </p>
             ))}
           </section>
@@ -179,6 +235,17 @@ export default function DashboardPage({ view }: { view: View }) {
           <div className="stat"><strong>{stats.by_status.follow_up_needed || 0}</strong><span>Need follow-up</span></div>
         </div>
       )}
+      <div className="toolbar">
+        <label className="muted" htmlFor="freshness-filter">Freshness</label>
+        <select id="freshness-filter" value={freshness} onChange={(event) => setFreshness(event.target.value as FreshnessFilter)}>
+          <option value="active">Default active</option>
+          <option value="fresh">Fresh only: 0-14 days</option>
+          <option value="last30">Last 30 days</option>
+          <option value="include_stale">Include stale</option>
+          <option value="closing">Closing soon</option>
+          <option value="unknown">Unknown posted date</option>
+        </select>
+      </div>
       <div className="jobs-grid">
         {visibleJobs.map((job) => (
           <JobCard
@@ -192,6 +259,17 @@ export default function DashboardPage({ view }: { view: View }) {
         {!visibleJobs.length && <p className="muted">No jobs in this view yet.</p>}
       </div>
     </Shell>
+  );
+}
+
+function FreshnessChips({ job }: { job: Job }) {
+  return (
+    <>
+      <span className="chip">{job.freshness_bucket || "unknown"}</span>
+      <span className="chip">{job.freshness_confidence || "unknown"}</span>
+      {job.is_stale && <span className="chip red">stale</span>}
+      {isClosingSoon(job) && <span className="chip warning">closing soon</span>}
+    </>
   );
 }
 
@@ -227,11 +305,16 @@ function JobCard({
         <div>
           <h3>{job.title}</h3>
           <p className="muted">{job.company} | {job.location} | {job.source} | found {job.date_found}</p>
+          <p className="muted">
+            Posted {job.source_posted_at || job.date_posted || "unknown"} | first seen {job.first_seen_at || job.date_found}
+            {job.source_closes_at ? ` | closes ${job.source_closes_at}` : ""}
+          </p>
         </div>
         <div className="score"><strong>{job.match_score}</strong><span>match</span></div>
       </div>
       <div className="chips">
         <span className="chip green">{job.status}</span>
+        <FreshnessChips job={job} />
         {(job.fit_reasons || []).slice(0, 3).map((reason) => <span className="chip" key={reason}>{reason}</span>)}
         {(job.missing_skills || []).slice(0, 3).map((skill) => <span className="chip red" key={skill}>{skill}</span>)}
       </div>

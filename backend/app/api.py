@@ -58,6 +58,10 @@ class SourceIn(BaseModel):
     url: str
     enabled: bool = True
     notes: str = ""
+    posted_date_supported: bool = False
+    close_date_supported: bool = False
+    updated_date_supported: bool = False
+    first_seen_only: bool = True
 
 
 def ensure_seeded() -> None:
@@ -74,9 +78,9 @@ def health() -> dict[str, str]:
 
 
 @app.get("/jobs")
-def jobs(status: str | None = None) -> list[dict[str, Any]]:
+def jobs(status: str | None = None, active_only: bool = False) -> list[dict[str, Any]]:
     ensure_seeded()
-    return db.list_jobs(status=status)
+    return db.list_jobs(status=status, active_only=active_only)
 
 
 @app.get("/jobs/{job_id}")

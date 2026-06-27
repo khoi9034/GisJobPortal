@@ -4,6 +4,16 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, ApplicationPacket, DocumentChecklist, Job } from "../lib/api";
 
+function daysUntil(value?: string) {
+  if (!value) return null;
+  return Math.ceil((new Date(`${value.slice(0, 10)}T00:00:00`).getTime() - Date.now()) / 86400000);
+}
+
+function isClosingSoon(job: Job) {
+  const days = daysUntil(job.source_closes_at);
+  return days !== null && days >= 0 && days <= 7;
+}
+
 export default function JobDetail({ id }: { id: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [packet, setPacket] = useState<ApplicationPacket | null>(null);
@@ -85,6 +95,16 @@ export default function JobDetail({ id }: { id: string }) {
           <p className="eyebrow">{job.status}</p>
           <h2>{job.title}</h2>
           <p className="muted">{job.company} | {job.location} | {job.source}</p>
+          <p className="muted">
+            Posted {job.source_posted_at || job.date_posted || "unknown"} | first seen {job.first_seen_at || job.date_found}
+            {job.source_closes_at ? ` | closes ${job.source_closes_at}` : ""}
+          </p>
+          <div className="chips">
+            <span className="chip">{job.freshness_bucket || "unknown"}</span>
+            <span className="chip">{job.freshness_confidence || "unknown"}</span>
+            {job.is_stale && <span className="chip red">stale</span>}
+            {isClosingSoon(job) && <span className="chip warning">closing soon</span>}
+          </div>
         </div>
         <div className="score"><strong>{job.match_score}</strong><span>match</span></div>
       </div>

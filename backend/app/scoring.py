@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .freshness import freshness_score
+
 POSITIVE_KEYWORDS = [
     "ArcGIS",
     "ArcGIS Pro",
@@ -118,6 +120,7 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         breakdown["entry_level_fit"] = CATEGORY_WEIGHTS["entry_level_fit"]
     seniority_penalty = min(30, len(penalty_matches) * 8)
     breakdown["seniority_penalty"] = -seniority_penalty
+    breakdown["freshness"] = freshness_score(job)
 
     total = max(0, min(100, sum(breakdown.values())))
     unique_matches = sorted(set(keyword_matches), key=str.lower)

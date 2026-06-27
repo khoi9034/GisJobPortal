@@ -18,6 +18,7 @@ from backend.app.documents import (
     extract_transcript,
     should_use_transcript,
 )
+from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
 from backend.app.paths import api_env, cors_origins, database_path
 from backend.app.profile import load_profile
@@ -49,12 +50,17 @@ class MvpTests(unittest.TestCase):
     def test_duplicate_detection_uses_company_title_location_url(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
-            first_id, first_duplicate = db.insert_job(self.job, path)
-            second_id, second_duplicate = db.insert_job(self.job, path)
+            first = apply_freshness(self.job, checked_at="2026-06-01")
+            second = apply_freshness(self.job, checked_at="2026-06-15")
+            first_id, first_duplicate = db.insert_job(first, path)
+            second_id, second_duplicate = db.insert_job(second, path)
             self.assertIsNotNone(first_id)
             self.assertFalse(first_duplicate)
-            self.assertIsNone(second_id)
+            self.assertEqual(second_id, first_id)
             self.assertTrue(second_duplicate)
+            updated = db.get_job(first_id, path)
+            self.assertEqual(updated["first_seen_at"], "2026-06-01")
+            self.assertEqual(updated["last_seen_at"], "2026-06-15")
 
     def test_profile_loading(self):
         self.assertEqual(self.profile["name"], "Khoi Nguyen")
@@ -105,6 +111,7 @@ class MvpTests(unittest.TestCase):
                 "ApplyURI": ["https://www.usajobs.gov/apply/123"],
                 "QualificationSummary": "GIS, Python, and spatial analysis experience.",
                 "PublicationStartDate": "2026-06-20",
+                "ApplicationCloseDate": "2026-07-01",
                 "PositionRemuneration": [{"MinimumRange": "62000", "MaximumRange": "82000"}],
                 "UserArea": {
                     "Details": {
@@ -120,7 +127,17 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(job["company"], "U.S. Geological Survey")
         self.assertEqual(job["apply_url"], "https://www.usajobs.gov/apply/123")
         self.assertEqual(job["salary_min"], 62000)
+        self.assertEqual(job["source_posted_at"], "2026-06-20")
+        self.assertEqual(job["source_closes_at"], "2026-07-01")
         self.assertIn("spatial analysis", job["requirements"])
+
+    def test_usajobs_query_defaults_to_recent_jobs(self):
+        source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}
+        with patch.dict(os.environ, {"USAJOBS_USER_AGENT": "test@example.com", "USAJOBS_API_KEY": "key"}, clear=False):
+            with patch("backend.app.collectors.load_backend_env"), patch("urllib.request.urlopen") as opener:
+                opener.return_value.__enter__.return_value.read.return_value = b'{"SearchResult":{"SearchResultItems":[]}}'
+                collectors.fetch_usajobs("GIS Analyst", source)
+        self.assertIn("DatePosted=30", opener.call_args.args[0].full_url)
 
     def test_disabled_sources_are_skipped_by_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -144,6 +161,68 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(result["sources_checked"], 1)
         self.assertEqual(result["jobs_collected"], 0)
         self.assertEqual(result["errors"], {"Broken API": "boom"})
+
+    def test_first_seen_stale_closed_and_active_filters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            stale_job = {**self.job, "source_url": "https://example.com/stale", "date_posted": "2000-01-01"}
+            closed_job = {**self.job, "source_url": "https://example.com/closed", "source_closes_at": "2000-01-02"}
+            stale_id, _ = db.insert_job(stale_job, path)
+            closed_id, _ = db.insert_job(closed_job, path)
+            stale = db.get_job(stale_id, path)
+            active_ids = {job["id"] for job in db.list_jobs(path=path, active_only=True)}
+        self.assertTrue(stale["first_seen_at"])
+        self.assertTrue(stale["is_stale"])
+        self.assertNotIn(closed_id, active_ids)
+
+    def test_freshness_score_boost_and_penalty(self):
+        fresh = score_job(apply_freshness({**self.job, "date_posted": db.now_iso()}), self.profile)
+        stale = score_job(apply_freshness({**self.job, "date_posted": "2000-01-01"}), self.profile)
+        self.assertGreater(fresh["scoring_breakdown"]["freshness"], 0)
+        self.assertLess(stale["scoring_breakdown"]["freshness"], 0)
+
+    def test_refresh_summary_counts_fresh_stale_and_closing_soon_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            jobs_path = Path(tmp) / "jobs.json"
+            jobs_path.write_text(json.dumps([
+                {**self.job, "title": "Fresh GIS Analyst", "source_url": "https://example.com/fresh", "date_posted": db.now_iso(), "source_closes_at": db.now_iso()},
+                {**self.job, "title": "Old GIS Analyst", "source_url": "https://example.com/old", "date_posted": "2000-01-01"},
+            ]), encoding="utf-8")
+            result = collectors.refresh_jobs(path, sources_override=[{"name": "Temp Jobs", "type": "manual", "url": str(jobs_path), "enabled": True, "notes": ""}])
+        self.assertEqual(result["jobs_collected"], 2)
+        self.assertEqual(result["new_jobs_inserted"], 2)
+        self.assertGreaterEqual(result["fresh_jobs"], 1)
+        self.assertGreaterEqual(result["stale_jobs"], 1)
+        self.assertGreaterEqual(result["closing_soon_jobs"], 1)
+
+    def test_refresh_marks_missing_jobs_without_reinserting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            jobs_path = Path(tmp) / "jobs.json"
+            jobs_path.write_text(json.dumps([{**self.job, "source": "Temp Jobs"}]), encoding="utf-8")
+            source = {"name": "Temp Jobs", "type": "manual", "url": str(jobs_path), "enabled": True, "notes": ""}
+            collectors.refresh_jobs(path, sources_override=[source])
+            job_id = db.list_jobs(path=path)[0]["id"]
+            jobs_path.write_text("[]", encoding="utf-8")
+            result = collectors.refresh_jobs(path, sources_override=[source])
+            job = db.get_job(job_id, path)
+        self.assertEqual(result["jobs_marked_missing_or_closed"], 1)
+        self.assertTrue(job["is_closed_or_missing"])
+
+    def test_inserted_jobs_return_freshness_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({**self.job, "date_posted": db.now_iso()}, path)
+            job = db.get_job(job_id, path)
+        for field in ["source_posted_at", "first_seen_at", "last_seen_at", "posting_age_days", "freshness_bucket", "freshness_confidence"]:
+            self.assertIn(field, job)
+
+    def test_sample_jobs_still_collect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            result = collectors.refresh_jobs(path, sources_override=[{"name": "Sample GIS Jobs", "type": "manual", "url": "data/sample_jobs.json", "enabled": True, "notes": ""}])
+        self.assertEqual(result["jobs_collected"], 5)
 
     def test_gitignore_protects_private_documents(self):
         patterns = Path(".gitignore").read_text(encoding="utf-8")

@@ -3,11 +3,16 @@ sources:
     type: manual
     url: data/sample_jobs.json
     enabled: true
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: false
     notes: Local sample jobs for MVP development and demos.
   - name: USAJobs API
     type: api
     url: https://data.usajobs.gov/api/search
     enabled: false
+    default_date_posted_days: 30
     results_per_page: 10
     search_terms:
       - GIS Analyst
@@ -17,79 +22,104 @@ sources:
       - Planning Technician
       - Spatial Analyst
       - Transportation Planning Analyst
+    posted_date_supported: true
+    close_date_supported: true
+    updated_date_supported: false
+    first_seen_only: false
     notes: Public federal jobs API; enable after setting USAJOBS_USER_AGENT and USAJOBS_API_KEY locally.
   - name: NC Government Jobs
     type: static_url
     url: https://www.governmentjobs.com/careers/northcarolina
     enabled: false
+    first_seen_only: true
     notes: Add API/RSS integration later if allowed by terms.
   - name: Cabarrus County Careers
     type: manual
     url: https://www.cabarruscounty.us/Government/Departments/Human-Resources/Careers
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: City of Concord Careers
     type: manual
     url: https://concordnc.gov/Departments/Human-Resources/Careers
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: City of Charlotte Careers
     type: manual
     url: https://www.charlottenc.gov/Services/Jobs
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: Mecklenburg County Careers
     type: manual
     url: https://www.mecknc.gov/CountyManagersOffice/BOCC/Pages/Careers.aspx
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: Wake County Careers
     type: manual
     url: https://www.wake.gov/departments-government/human-resources/jobs-wake-county
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: NCDOT Careers
     type: manual
     url: https://www.ncdot.gov/about-us/our-people/careers/Pages/default.aspx
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: Esri Careers
     type: manual
     url: https://www.esri.com/en-us/about/careers/job-search
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: WSP Careers
     type: manual
     url: https://www.wsp.com/en-us/careers
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: AECOM Careers
     type: manual
     url: https://aecom.jobs/
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: Kimley-Horn Careers
     type: manual
     url: https://www.kimley-horn.com/careers/
     enabled: false
+    first_seen_only: true
     notes: Manual review only; no scraping, login automation, or auto-apply.
   - name: HDR Careers
     type: manual
     url: https://www.hdrinc.com/careers
     enabled: false
+    first_seen_only: true
     notes: Manual review source; no portal automation.
   - name: Greenhouse Example
     type: greenhouse
     url: https://boards.greenhouse.io/example
     enabled: false
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: true
+    first_seen_only: true
     notes: Placeholder for companies with public Greenhouse boards.
   - name: Lever Example
     type: lever
     url: https://jobs.lever.co/example
     enabled: false
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: true
+    first_seen_only: true
     notes: Placeholder for companies with public Lever boards.
   - name: Consulting Firm Manual Sources
     type: manual
     url: https://example.com/consulting-careers
     enabled: false
+    first_seen_only: true
     notes: Manual source bucket for GIS/planning/location-intelligence consulting firms.

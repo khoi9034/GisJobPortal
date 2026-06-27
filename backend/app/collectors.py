@@ -7,6 +7,7 @@ from typing import Any
 from urllib import error, parse, request
 
 from . import db
+from .freshness import apply_freshness
 from .paths import ROOT, SAMPLE_JOBS_PATH, load_backend_env
 from .profile import load_profile
 from .scoring import score_job
@@ -29,6 +30,7 @@ def normalize_job(raw: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]
     location = (raw.get("location") or "Unknown").strip()
     if not title or not company:
         raise ValueError("Job requires title and company")
+    source_posted_at = raw.get("source_posted_at") or raw.get("date_posted") or raw.get("posted_at", "")
     return {
         "title": title,
         "company": company,
@@ -41,7 +43,10 @@ def normalize_job(raw: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]
         "requirements": raw.get("requirements", ""),
         "salary_min": raw.get("salary_min"),
         "salary_max": raw.get("salary_max"),
-        "date_posted": raw.get("date_posted", ""),
+        "date_posted": source_posted_at,
+        "source_posted_at": source_posted_at,
+        "source_updated_at": raw.get("source_updated_at") or raw.get("updated_at", ""),
+        "source_closes_at": raw.get("source_closes_at") or raw.get("closing_at", ""),
         "status": "new",
     }
 
@@ -75,7 +80,8 @@ def normalize_usajobs_item(item: dict[str, Any], source: dict[str, Any]) -> dict
             "requirements": requirements,
             "salary_min": _as_float(salary.get("MinimumRange")),
             "salary_max": _as_float(salary.get("MaximumRange")),
-            "date_posted": data.get("PublicationStartDate", ""),
+            "source_posted_at": data.get("PublicationStartDate", ""),
+            "source_closes_at": data.get("ApplicationCloseDate") or details.get("ApplicationCloseDate", ""),
         },
         source,
     )
@@ -93,6 +99,7 @@ def fetch_usajobs(term: str, source: dict[str, Any]) -> dict[str, Any]:
         "ResultsPerPage": str(source.get("results_per_page", 10)),
         "Fields": "Full",
         "WhoMayApply": "public",
+        "DatePosted": str(source.get("default_date_posted_days", 30)),
     }
     if source.get("location"):
         params["LocationName"] = source["location"]
@@ -142,27 +149,30 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
     for source in sources:
         db.upsert_source(source, db_path)
 
-    new_jobs = duplicates = jobs_collected = jobs_scored = sources_checked = sources_skipped = 0
-    bands = {"high_matches": 0, "medium_matches": 0, "low_matches": 0}
+    new_jobs = duplicates = jobs_collected = jobs_scored = sources_checked = sources_skipped = marked_missing = 0
     errors: dict[str, str] = {}
     for source in sources:
         if not source.get("enabled", True):
             sources_skipped += 1
-            db.mark_source_checked(source["name"], "disabled", db_path)
+            db.mark_source_checked(source["name"], "disabled", db_path, jobs_found=0)
             continue
         sources_checked += 1
+        checked_at = db.now_iso()
         try:
             collected = collect_from_source(source)
         except Exception as exc:  # Keep one bad source from killing the whole refresh.
             message = str(exc)
             errors[source["name"]] = message
-            db.mark_source_checked(source["name"], f"error: {message}", db_path)
+            db.mark_source_checked(source["name"], f"error: {message}", db_path, jobs_found=0, error=message)
             continue
         jobs_collected += len(collected)
-        inserted = source_duplicates = 0
+        inserted = source_duplicates = source_closed = 0
         for job in collected:
-            scored = {**job, **score_job(job, profile)}
+            freshened = apply_freshness(job, checked_at=checked_at)
+            scored = {**freshened, **score_job(freshened, profile)}
             jobs_scored += 1
+            if scored.get("is_closed_or_missing"):
+                source_closed += 1
             job_id, duplicate = db.insert_job(scored, db_path)
             if duplicate:
                 duplicates += 1
@@ -170,22 +180,32 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
                 continue
             new_jobs += 1
             inserted += 1
-            score = scored["match_score"]
-            if score >= 75:
-                bands["high_matches"] += 1
-            elif score >= 50:
-                bands["medium_matches"] += 1
-            else:
-                bands["low_matches"] += 1
-        db.mark_source_checked(source["name"], f"ok: {inserted} new, {source_duplicates} duplicates", db_path)
+        marked_missing += source_closed + db.mark_missing_jobs(source["name"], checked_at, collected, db_path)
+        db.mark_source_checked(
+            source["name"],
+            f"ok: {inserted} new, {source_duplicates} duplicates",
+            db_path,
+            jobs_found=len(collected),
+        )
 
+    counts = db.freshness_counts(db_path)
+    active_jobs = db.list_jobs(path=db_path, active_only=True)
+    bands = {
+        "high_matches": sum(1 for item in active_jobs if item["match_score"] >= 75),
+        "medium_matches": sum(1 for item in active_jobs if 50 <= item["match_score"] < 75),
+        "low_matches": sum(1 for item in active_jobs if item["match_score"] < 50),
+    }
     return {
         "sources_checked": sources_checked,
         "sources_skipped": sources_skipped,
         "jobs_collected": jobs_collected,
         "jobs_scored": jobs_scored,
         "new_jobs_found": new_jobs,
+        "new_jobs_inserted": new_jobs,
         "duplicates_skipped": duplicates,
+        "duplicates_updated": duplicates,
+        "jobs_marked_missing_or_closed": marked_missing,
         "errors": errors,
+        **counts,
         **bands,
     }

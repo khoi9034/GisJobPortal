@@ -29,6 +29,7 @@ a {
 }
 
 button,
+select,
 textarea {
   font: inherit;
 }
@@ -155,6 +156,15 @@ h2 {
   min-height: 38px;
 }
 
+select {
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
 .button.primary {
   background: var(--green);
   color: #082114;
@@ -232,6 +242,11 @@ h2 {
 .chip.red {
   color: var(--red);
   border-color: #704045;
+}
+
+.chip.warning {
+  color: var(--amber);
+  border-color: #725b2a;
 }
 
 .actions {

@@ -70,7 +70,20 @@ vercel deploy --prebuilt --prod
 
 The MVP loads enabled sources from `config/sources.yaml`. The default enabled source is `data/sample_jobs.json`, so the dashboard works before real collectors are connected.
 
-The refresh command reports sources checked, disabled sources skipped, jobs collected, duplicates skipped, jobs scored, match bands, and per-source errors without stopping the full refresh.
+The refresh command reports sources checked, disabled sources skipped, jobs collected, new jobs inserted, duplicates updated, jobs marked missing/closed, fresh/stale counts, closing-soon counts, match bands, and per-source errors without stopping the full refresh.
+
+Duplicate jobs are not reinserted. Refresh updates `last_seen_at`, source close/update dates, freshness fields, and scoring while preserving user status such as saved or applied.
+
+Freshness defaults live in `config/application_rules.yaml`:
+
+```yaml
+freshness:
+  max_default_age_days: 30
+  hide_after_days: 45
+  fresh_days: 14
+  closing_soon_days: 7
+  unknown_date_allowed: true
+```
 
 ## Add Job Sources
 
@@ -98,7 +111,16 @@ USAJOBS_USER_AGENT=your_email@example.com
 USAJOBS_API_KEY=replace_with_your_local_secret
 ```
 
-Then set `enabled: true` for `USAJobs API` in `config/sources.yaml` and run the refresh command. Do not commit `backend/.env` or the API key.
+Then set `enabled: true` for `USAJobs API` in `config/sources.yaml` and run the refresh command. `default_date_posted_days: 30` keeps USAJobs queries recent by default; lower it to 7 or 14 for stricter freshness. Do not commit `backend/.env` or the API key.
+
+Sources can declare freshness coverage with:
+
+```yaml
+posted_date_supported: true
+close_date_supported: true
+updated_date_supported: false
+first_seen_only: false
+```
 
 ### Manual Sources
 

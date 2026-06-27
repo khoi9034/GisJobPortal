@@ -16,6 +16,17 @@ export type Job = {
   salary_max: number | null;
   date_posted: string;
   date_found: string;
+  source_posted_at?: string;
+  source_updated_at?: string;
+  source_closes_at?: string;
+  first_seen_at?: string;
+  last_seen_at?: string;
+  last_checked_at?: string;
+  posting_age_days?: number | null;
+  freshness_bucket?: string;
+  freshness_confidence?: string;
+  is_stale?: boolean;
+  is_closed_or_missing?: boolean;
   status: string;
   match_score: number;
   fit_summary: string;
@@ -67,6 +78,12 @@ export type Source = {
   notes: string;
   last_checked?: string;
   last_status?: string;
+  jobs_found_last_run?: number;
+  errors_last_run?: string;
+  posted_date_supported?: boolean;
+  close_date_supported?: boolean;
+  updated_date_supported?: boolean;
+  first_seen_only?: boolean;
 };
 
 export type Stats = {
@@ -93,6 +110,17 @@ const demoJobs: Job[] = [
     salary_max: 72000,
     date_posted: "2026-06-12",
     date_found: "2026-06-26",
+    source_posted_at: "2026-06-12",
+    source_updated_at: "",
+    source_closes_at: "2026-07-03",
+    first_seen_at: "2026-06-26",
+    last_seen_at: "2026-06-26",
+    last_checked_at: "2026-06-26",
+    posting_age_days: 14,
+    freshness_bucket: "8-14 days",
+    freshness_confidence: "source_posted_date",
+    is_stale: false,
+    is_closed_or_missing: false,
     status: "new",
     match_score: 80,
     fit_summary: "Strong ArcGIS and web GIS overlap. Matches parcel, zoning, and land use experience.",
@@ -142,6 +170,17 @@ const demoJobs: Job[] = [
     salary_max: 78000,
     date_posted: "2026-06-15",
     date_found: "2026-06-26",
+    source_posted_at: "2026-06-15",
+    source_updated_at: "",
+    source_closes_at: "",
+    first_seen_at: "2026-06-26",
+    last_seen_at: "2026-06-26",
+    last_checked_at: "2026-06-26",
+    posting_age_days: 11,
+    freshness_bucket: "8-14 days",
+    freshness_confidence: "source_posted_date",
+    is_stale: false,
+    is_closed_or_missing: false,
     status: "new",
     match_score: 71,
     fit_summary: "Planning, GIS, Python automation, and North Carolina location fit.",
@@ -203,6 +242,12 @@ function demoApi<T>(path: string, init?: RequestInit): T {
         notes: "Bundled frontend demo data",
         last_checked: "",
         last_status: "demo mode",
+        jobs_found_last_run: demoJobs.length,
+        errors_last_run: "",
+        posted_date_supported: true,
+        close_date_supported: false,
+        updated_date_supported: false,
+        first_seen_only: false,
       },
     ] as T;
   }
