@@ -570,7 +570,7 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(status["model"], "openrouter/pony-alpha")
 
     def test_generated_prompts_do_not_include_private_paths_or_env_content(self):
-        dirty_resume = r"C:\Users\khoia\OneDrive\Documents\GisJobPortal\private\resume\resume_extracted.md OPENROUTER_API_KEY=secret .env.local"
+        dirty_resume = r"C:\Dev\GisJobPortal\private\resume\resume_extracted.md OPENROUTER_API_KEY=secret .env.local"
         context = safe_generation_context(self.job, self.profile, dirty_resume, "")
         prompt = materials_user_prompt(context)
         self.assertNotIn("resume_extracted.md", prompt)
