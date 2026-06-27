@@ -219,6 +219,8 @@ def generate_application_packet(job_id: int) -> dict[str, Any]:
             "recommended_resume_angle": materials.get("resume_angle") or job.get("recommended_resume_angle", ""),
             "application_packet_dir": str(packet_dir),
             "document_checklist": checklist,
+            "needs_packet": False,
+            "packet_generated_at": db.now_iso(),
         },
     )
     return {

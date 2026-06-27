@@ -85,6 +85,18 @@ freshness:
   unknown_date_allowed: true
 ```
 
+## Daily Review Workflow
+
+1. Run `python scripts/refresh_jobs.py`.
+2. Open the dashboard.
+3. Go to Daily Review.
+4. Review Fresh High Match and Closing Soon first.
+5. Mark jobs Interested, Maybe, or Not Interested.
+6. Generate a packet only for jobs worth applying to.
+7. Mark Ready to Apply.
+8. Submit manually outside the app.
+9. Mark Applied and schedule follow-up.
+
 ## Add Job Sources
 
 Edit `config/sources.yaml` or use `POST /sources`.

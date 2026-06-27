@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .freshness import apply_freshness, freshness_rules
+from .freshness import apply_freshness, freshness_rules, parse_date, today_utc
 from .paths import DB_PATH
 
 VALID_STATUSES = {
@@ -21,6 +21,9 @@ VALID_STATUSES = {
     "rejected",
     "follow_up_needed",
 }
+
+VALID_REVIEW_STATUSES = {"unreviewed", "interested", "not_interested", "maybe", "applied", "archived"}
+VALID_PRIORITY_BUCKETS = {"urgent", "high", "medium", "low"}
 
 JSON_FIELDS = {
     "scoring_breakdown",
@@ -69,6 +72,13 @@ JOB_COLUMNS = [
     "posting_age_days",
     "freshness_bucket",
     "freshness_confidence",
+    "reviewed_at",
+    "review_status",
+    "review_notes",
+    "priority_bucket",
+    "close_days_remaining",
+    "needs_packet",
+    "packet_generated_at",
     "is_stale",
     "is_closed_or_missing",
 ]
@@ -138,6 +148,13 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 posting_age_days INTEGER,
                 freshness_bucket TEXT DEFAULT 'unknown',
                 freshness_confidence TEXT DEFAULT 'unknown',
+                reviewed_at TEXT DEFAULT '',
+                review_status TEXT NOT NULL DEFAULT 'unreviewed',
+                review_notes TEXT DEFAULT '',
+                priority_bucket TEXT NOT NULL DEFAULT 'medium',
+                close_days_remaining INTEGER,
+                needs_packet INTEGER NOT NULL DEFAULT 1,
+                packet_generated_at TEXT DEFAULT '',
                 is_stale INTEGER NOT NULL DEFAULT 0,
                 is_closed_or_missing INTEGER NOT NULL DEFAULT 0
             );
@@ -217,6 +234,13 @@ def ensure_job_columns(conn: sqlite3.Connection) -> None:
         "posting_age_days": "INTEGER",
         "freshness_bucket": "TEXT DEFAULT 'unknown'",
         "freshness_confidence": "TEXT DEFAULT 'unknown'",
+        "reviewed_at": "TEXT DEFAULT ''",
+        "review_status": "TEXT NOT NULL DEFAULT 'unreviewed'",
+        "review_notes": "TEXT DEFAULT ''",
+        "priority_bucket": "TEXT NOT NULL DEFAULT 'medium'",
+        "close_days_remaining": "INTEGER",
+        "needs_packet": "INTEGER NOT NULL DEFAULT 1",
+        "packet_generated_at": "TEXT DEFAULT ''",
         "is_stale": "INTEGER NOT NULL DEFAULT 0",
         "is_closed_or_missing": "INTEGER NOT NULL DEFAULT 0",
     }
@@ -259,9 +283,20 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
                 job[field] = json.loads(value) if value else ({} if field in {"scoring_breakdown", "document_checklist"} else [])
             except json.JSONDecodeError:
                 job[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
-    for field in ("is_stale", "is_closed_or_missing"):
+    for field in ("is_stale", "is_closed_or_missing", "needs_packet"):
         job[field] = bool(job.get(field))
     return job
+
+
+def priority_for_job(job: dict[str, Any]) -> str:
+    days = job.get("close_days_remaining")
+    if isinstance(days, int) and 0 <= days <= 7:
+        return "urgent"
+    if int(job.get("match_score") or 0) >= 75:
+        return "high"
+    if int(job.get("match_score") or 0) >= 50:
+        return "medium"
+    return "low"
 
 
 def upsert_source(source: dict[str, Any], path: Path | str = DB_PATH) -> None:
@@ -395,6 +430,9 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     values = {**values, **apply_freshness(values)}
     values["status"] = values.get("status") or "new"
     values["match_score"] = int(values.get("match_score") or 0)
+    values["review_status"] = values.get("review_status") or "unreviewed"
+    values["priority_bucket"] = values.get("priority_bucket") or priority_for_job(values)
+    values["needs_packet"] = int(bool(values.get("needs_packet", True)))
     values["is_stale"] = int(bool(values.get("is_stale")))
     values["is_closed_or_missing"] = int(bool(values.get("is_closed_or_missing")))
     for field in JSON_FIELDS:
@@ -433,6 +471,12 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
                     "resume_bullet_suggestions",
                     "application_packet_dir",
                     "document_checklist",
+                    "reviewed_at",
+                    "review_status",
+                    "review_notes",
+                    "priority_bucket",
+                    "needs_packet",
+                    "packet_generated_at",
                 }
             ]
             conn.execute(
@@ -510,6 +554,10 @@ def update_job_fields(job_id: int, fields: dict[str, Any], path: Path | str = DB
         raise ValueError(f"Unsupported job fields: {', '.join(sorted(bad))}")
     if "status" in fields and fields["status"] not in VALID_STATUSES:
         raise ValueError(f"Invalid status: {fields['status']}")
+    if "review_status" in fields and fields["review_status"] not in VALID_REVIEW_STATUSES:
+        raise ValueError(f"Invalid review status: {fields['review_status']}")
+    if "priority_bucket" in fields and fields["priority_bucket"] not in VALID_PRIORITY_BUCKETS:
+        raise ValueError(f"Invalid priority bucket: {fields['priority_bucket']}")
 
     values = dict(fields)
     for field in JSON_FIELDS & set(values):
@@ -530,6 +578,55 @@ def update_job_fields(job_id: int, fields: dict[str, Any], path: Path | str = DB
     if not job:
         raise LookupError(f"Job {job_id} not found")
     return job
+
+
+def close_days(job: dict[str, Any]) -> int | None:
+    if isinstance(job.get("close_days_remaining"), int):
+        return job["close_days_remaining"]
+    closes = parse_date(job.get("source_closes_at"))
+    return (closes - today_utc()).days if closes else None
+
+
+def active_for_review(job: dict[str, Any], include_stale: bool = False) -> bool:
+    return not job.get("is_closed_or_missing") and (include_stale or not job.get("is_stale"))
+
+
+def unreviewed(job: dict[str, Any]) -> bool:
+    return (job.get("review_status") or "unreviewed") == "unreviewed"
+
+
+def review_queue(path: Path | str = DB_PATH, include_stale: bool = False) -> dict[str, list[dict[str, Any]]]:
+    today = now_iso()
+    rows = [job for job in list_jobs(path=path) if active_for_review(job, include_stale)]
+    return {
+        "new_today": [job for job in rows if unreviewed(job) and (job.get("first_seen_at") or job.get("date_found")) == today],
+        "fresh_high_match": [job for job in rows if unreviewed(job) and int(job.get("match_score") or 0) >= 75 and not job.get("is_stale")],
+        "closing_soon": [job for job in rows if (close_days(job) is not None and 0 <= close_days(job) <= 7) and job.get("status") not in {"applied", "skipped"}],
+        "needs_review": [job for job in rows if unreviewed(job)],
+        "packet_ready": [job for job in rows if job.get("status") in {"materials_generated", "ready_to_apply"}],
+        "applied_follow_up": [job for job in rows if job.get("status") in {"applied", "follow_up_needed"} or job.get("review_status") == "applied"],
+    }
+
+
+def review_counts(path: Path | str = DB_PATH) -> dict[str, int]:
+    queue = review_queue(path)
+    return {
+        "unreviewed_jobs": len(queue["needs_review"]),
+        "high_match_unreviewed_jobs": len(queue["fresh_high_match"]),
+        "packets_ready": len(queue["packet_ready"]),
+        "applied_followups_needed": len(queue["applied_follow_up"]),
+    }
+
+
+def update_job_review(job_id: int, fields: dict[str, Any], path: Path | str = DB_PATH) -> dict[str, Any]:
+    allowed = {"review_status", "review_notes", "priority_bucket"}
+    updates = {key: value for key, value in fields.items() if key in allowed and value is not None}
+    bad = set(fields) - allowed
+    if bad:
+        raise ValueError(f"Unsupported review fields: {', '.join(sorted(bad))}")
+    if "review_status" in updates:
+        updates["reviewed_at"] = "" if updates["review_status"] == "unreviewed" else now_iso()
+    return update_job_fields(job_id, updates, path)
 
 
 def save_materials(job_id: int, materials: dict[str, Any], path: Path | str = DB_PATH) -> dict[str, Any]:

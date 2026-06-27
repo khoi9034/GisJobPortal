@@ -330,6 +330,51 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(stale["is_stale"])
         self.assertNotIn(closed_id, active_ids)
 
+    def test_review_queue_groups_high_match_fresh_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/review-high", "date_posted": db.now_iso(), "match_score": 82}, path)
+            queue = db.review_queue(path)
+        self.assertIn(job_id, {job["id"] for job in queue["fresh_high_match"]})
+
+    def test_closing_soon_calculation_works(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/closing-soon", "source_closes_at": db.now_iso()}, path)
+            job = db.get_job(job_id, path)
+            queue = db.review_queue(path)
+        self.assertEqual(job["close_days_remaining"], 0)
+        self.assertIn(job_id, {item["id"] for item in queue["closing_soon"]})
+
+    def test_review_queue_hides_stale_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/stale-review", "date_posted": "2000-01-01", "match_score": 90}, path)
+            hidden = db.review_queue(path)
+            visible = db.review_queue(path, include_stale=True)
+        self.assertNotIn(job_id, {job["id"] for job in hidden["needs_review"]})
+        self.assertIn(job_id, {job["id"] for job in visible["needs_review"]})
+
+    def test_review_update_does_not_change_application_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/review-status", "status": "saved"}, path)
+            updated = db.update_job_review(job_id, {"review_status": "interested", "priority_bucket": "high"}, path)
+        self.assertEqual(updated["status"], "saved")
+        self.assertEqual(updated["review_status"], "interested")
+        self.assertEqual(updated["priority_bucket"], "high")
+        self.assertTrue(updated["reviewed_at"])
+
+    def test_refresh_summary_includes_review_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            jobs_path = Path(tmp) / "jobs.json"
+            jobs_path.write_text(json.dumps([{**self.job, "source_url": "https://example.com/review-refresh", "date_posted": db.now_iso()}]), encoding="utf-8")
+            result = collectors.refresh_jobs(path, sources_override=[{"name": "Temp Review Jobs", "type": "manual", "url": str(jobs_path), "enabled": True, "notes": ""}])
+        for field in ["unreviewed_jobs", "high_match_unreviewed_jobs", "packets_ready", "applied_followups_needed"]:
+            self.assertIn(field, result)
+        self.assertGreaterEqual(result["unreviewed_jobs"], 1)
+
     def test_freshness_score_boost_and_penalty(self):
         fresh = score_job(apply_freshness({**self.job, "date_posted": db.now_iso()}), self.profile)
         stale = score_job(apply_freshness({**self.job, "date_posted": "2000-01-01"}), self.profile)

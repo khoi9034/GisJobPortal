@@ -42,6 +42,12 @@ class NotesPatch(BaseModel):
     notes: str
 
 
+class ReviewPatch(BaseModel):
+    review_status: str | None = None
+    review_notes: str | None = None
+    priority_bucket: str | None = None
+
+
 class ChecklistPatch(BaseModel):
     checklist: dict[str, Any] | None = None
     resume_required: bool | None = None
@@ -102,6 +108,12 @@ def refresh() -> dict[str, Any]:
     return refresh_jobs()
 
 
+@app.get("/review/queue")
+def review_queue(include_stale: bool = False) -> dict[str, list[dict[str, Any]]]:
+    ensure_seeded()
+    return db.review_queue(include_stale=include_stale)
+
+
 @app.post("/jobs/{job_id}/score")
 def score(job_id: int) -> dict[str, Any]:
     found = db.get_job(job_id)
@@ -155,6 +167,16 @@ def status(job_id: int, patch: StatusPatch) -> dict[str, Any]:
 def notes(job_id: int, patch: NotesPatch) -> dict[str, Any]:
     try:
         return db.update_job_fields(job_id, {"notes": patch.notes})
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/jobs/{job_id}/review")
+def review(job_id: int, patch: ReviewPatch) -> dict[str, Any]:
+    try:
+        return db.update_job_review(job_id, patch.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

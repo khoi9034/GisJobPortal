@@ -304,6 +304,7 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
         "jobs_marked_missing_or_closed": marked_missing,
         "errors": errors,
         "source_results": source_results,
+        **db.review_counts(db_path),
         **counts,
         **bands,
     }

@@ -2,13 +2,21 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, AiStatus, Job, Source, Stats } from "../lib/api";
+import { api, AiStatus, ApplicationPacket, Job, Source, Stats } from "../lib/api";
 
-type View = "overview" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
+type View = "overview" | "review" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 type FreshnessFilter = "active" | "fresh" | "last30" | "include_stale" | "closing" | "unknown";
+type ReviewFilters = {
+  freshOnly: boolean;
+  highMatchOnly: boolean;
+  closingSoon: boolean;
+  unreviewedOnly: boolean;
+  includeStale: boolean;
+};
 
 const nav = [
   ["overview", "/", "Overview"],
+  ["review", "/daily-review", "Daily Review"],
   ["new", "/new-jobs", "New Jobs"],
   ["best", "/best-matches", "Best Matches"],
   ["saved", "/saved", "Saved Jobs"],
@@ -27,6 +35,7 @@ const titles: Record<View, string> = {
   follow: "Follow-Up Needed",
   skipped: "Skipped",
   settings: "Settings/Profile",
+  review: "Daily Review",
 };
 
 function Shell({ view, children }: { view: View; children: React.ReactNode }) {
@@ -106,6 +115,37 @@ function filterJobs(jobs: Job[], view: View, freshness: FreshnessFilter) {
   return sortJobs(rows);
 }
 
+function reviewActive(job: Job, includeStale: boolean) {
+  return !job.is_closed_or_missing && (includeStale || !job.is_stale);
+}
+
+function isUnreviewed(job: Job) {
+  return (job.review_status || "unreviewed") === "unreviewed";
+}
+
+function buildReviewQueue(jobs: Job[], includeStale: boolean) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = sortJobs(jobs.filter((job) => reviewActive(job, includeStale)));
+  return {
+    new_today: rows.filter((job) => isUnreviewed(job) && (job.first_seen_at || job.date_found) === today),
+    fresh_high_match: rows.filter((job) => isUnreviewed(job) && job.match_score >= 75 && !job.is_stale),
+    closing_soon: rows.filter((job) => isClosingSoon(job) && !["applied", "skipped"].includes(job.status)),
+    needs_review: rows.filter(isUnreviewed),
+    packet_ready: rows.filter((job) => ["materials_generated", "ready_to_apply"].includes(job.status)),
+    applied_follow_up: rows.filter((job) => ["applied", "follow_up_needed"].includes(job.status)),
+  };
+}
+
+function reviewFilterRows(jobs: Job[], filters: ReviewFilters) {
+  return jobs.filter((job) => {
+    if (filters.freshOnly && !(age(job) !== null && age(job)! <= FRESH_DAYS)) return false;
+    if (filters.highMatchOnly && job.match_score < 75) return false;
+    if (filters.closingSoon && !isClosingSoon(job)) return false;
+    if (filters.unreviewedOnly && !isUnreviewed(job)) return false;
+    return true;
+  });
+}
+
 function credentialsPresent(source: Source) {
   if (!source.name.toLowerCase().includes("usajobs")) return "unknown";
   if ((source.last_error || source.errors_last_run || "").toLowerCase().includes("credentials missing")) return "no";
@@ -127,6 +167,7 @@ export default function DashboardPage({ view }: { view: View }) {
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [freshness, setFreshness] = useState<FreshnessFilter>("active");
+  const [reviewFilters, setReviewFilters] = useState<ReviewFilters>({ freshOnly: false, highMatchOnly: false, closingSoon: false, unreviewedOnly: false, includeStale: false });
   const [message, setMessage] = useState("");
 
   async function load() {
@@ -149,6 +190,7 @@ export default function DashboardPage({ view }: { view: View }) {
   }, []);
 
   const visibleJobs = useMemo(() => filterJobs(jobs, view, freshness), [jobs, view, freshness]);
+  const reviewQueue = useMemo(() => buildReviewQueue(jobs, reviewFilters.includeStale), [jobs, reviewFilters.includeStale]);
 
   async function refreshJobs() {
     const result = await api<Record<string, number>>("/jobs/refresh", { method: "POST" });
@@ -172,9 +214,23 @@ export default function DashboardPage({ view }: { view: View }) {
     await load();
   }
 
+  async function setReview(job: Job, review_status: string) {
+    await api<Job>(`/jobs/${job.id}/review`, {
+      method: "PATCH",
+      body: JSON.stringify({ review_status }),
+    });
+    await load();
+  }
+
   async function generate(job: Job) {
     await api<Job>(`/jobs/${job.id}/generate-materials`, { method: "POST" });
     setMessage(`Generated materials for ${job.title}.`);
+    await load();
+  }
+
+  async function generatePacket(job: Job) {
+    const row = await api<ApplicationPacket>(`/jobs/${job.id}/generate-application-packet`, { method: "POST" });
+    setMessage(`${job.title}: ${row.generation_mode === "pony_alpha" ? "Pony Alpha" : "template fallback"} packet generated.`);
     await load();
   }
 
@@ -246,6 +302,20 @@ export default function DashboardPage({ view }: { view: View }) {
     );
   }
 
+  if (view === "review") {
+    return (
+      <Shell view={view}>
+        <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+        <ReviewFilterBar filters={reviewFilters} setFilters={setReviewFilters} />
+        <ReviewGroup title="New Today" jobs={reviewFilterRows(reviewQueue.new_today, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
+        <ReviewGroup title="Fresh High Match" jobs={reviewFilterRows(reviewQueue.fresh_high_match, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
+        <ReviewGroup title="Closing Soon" jobs={reviewFilterRows(reviewQueue.closing_soon, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
+        <ReviewGroup title="Needs Review" jobs={reviewFilterRows(reviewQueue.needs_review, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
+        <ReviewGroup title="Packet Ready" jobs={reviewFilterRows(reviewQueue.packet_ready, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
+      </Shell>
+    );
+  }
+
   return (
     <Shell view={view}>
       <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
@@ -298,6 +368,104 @@ function ActivationChecklist({ source }: { source: Source }) {
       <br />
       Next action: {nextSourceAction(source)}
     </div>
+  );
+}
+
+function ReviewFilterBar({
+  filters,
+  setFilters,
+}: {
+  filters: ReviewFilters;
+  setFilters: (filters: ReviewFilters) => void;
+}) {
+  const rows: Array<[keyof ReviewFilters, string]> = [
+    ["freshOnly", "Fresh only"],
+    ["highMatchOnly", "High match only"],
+    ["closingSoon", "Closing soon"],
+    ["unreviewedOnly", "Unreviewed only"],
+    ["includeStale", "Include stale"],
+  ];
+  return (
+    <div className="toolbar">
+      {rows.map(([key, label]) => (
+        <label className="check-row" key={key}>
+          <input type="checkbox" checked={filters[key]} onChange={(event) => setFilters({ ...filters, [key]: event.target.checked })} />
+          {label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function ReviewGroup({
+  title,
+  jobs,
+  onReview,
+  onStatus,
+  onGeneratePacket,
+}: {
+  title: string;
+  jobs: Job[];
+  onReview: (job: Job, reviewStatus: string) => void;
+  onStatus: (job: Job, status: string) => void;
+  onGeneratePacket: (job: Job) => void;
+}) {
+  return (
+    <section>
+      <h3>{title}</h3>
+      <div className="jobs-grid">
+        {jobs.map((job) => (
+          <ReviewJobCard job={job} key={`${title}-${job.id}`} onReview={onReview} onStatus={onStatus} onGeneratePacket={onGeneratePacket} />
+        ))}
+        {!jobs.length && <p className="muted">No jobs in this group.</p>}
+      </div>
+    </section>
+  );
+}
+
+function ReviewJobCard({
+  job,
+  onReview,
+  onStatus,
+  onGeneratePacket,
+}: {
+  job: Job;
+  onReview: (job: Job, reviewStatus: string) => void;
+  onStatus: (job: Job, status: string) => void;
+  onGeneratePacket: (job: Job) => void;
+}) {
+  const closeDays = job.close_days_remaining ?? daysUntil(job.source_closes_at);
+  return (
+    <article className="job-card">
+      <div className="job-head">
+        <div>
+          <h3>{job.title}</h3>
+          <p className="muted">{job.company} | {job.location} | {job.source}</p>
+          <p className="muted">
+            Posted {job.source_posted_at || job.date_posted || "unknown"} | first seen {job.first_seen_at || job.date_found}
+            {job.source_closes_at ? ` | closes ${job.source_closes_at}` : ""}
+            {closeDays !== null && closeDays !== undefined ? ` | ${closeDays} days left` : ""}
+          </p>
+        </div>
+        <div className="score"><strong>{job.match_score}</strong><span>match</span></div>
+      </div>
+      <div className="chips">
+        <span className="chip green">{job.review_status || "unreviewed"}</span>
+        <span className="chip">{job.priority_bucket || "medium"}</span>
+        <FreshnessChips job={job} />
+        {job.fit_reasons?.[0] && <span className="chip">{job.fit_reasons[0]}</span>}
+      </div>
+      <div className="actions">
+        <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
+        <button className="button" onClick={() => onReview(job, "interested")}>Interested</button>
+        <button className="button" onClick={() => onReview(job, "maybe")}>Maybe</button>
+        <button className="button" onClick={() => onReview(job, "not_interested")}>Not Interested</button>
+        <button className="button warning" onClick={() => onGeneratePacket(job)}>Generate Packet</button>
+        <button className="button" onClick={() => onStatus(job, "ready_to_apply")}>Mark Ready to Apply</button>
+        <button className="button" onClick={() => onStatus(job, "applied")}>Mark Applied</button>
+        <a className="button primary" href={job.apply_url} target="_blank">Open Apply Link</a>
+      </div>
+    </article>
   );
 }
 

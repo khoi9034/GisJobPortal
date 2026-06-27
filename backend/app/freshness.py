@@ -111,6 +111,7 @@ def apply_freshness(
         "source_posted_date" if posted else "source_updated_date" if updated else "first_seen_only" if first_seen else "unknown"
     )
     close_date = parse_date(closes)
+    close_days = (close_date - today).days if close_date else None
 
     return {
         **job,
@@ -125,6 +126,7 @@ def apply_freshness(
         "posting_age_days": age,
         "freshness_bucket": bucket(age),
         "freshness_confidence": confidence,
+        "close_days_remaining": close_days,
         "is_stale": bool(age is not None and age > int(rules["max_default_age_days"])),
         "is_closed_or_missing": bool(job.get("is_closed_or_missing") or (close_date and close_date < today)),
     }

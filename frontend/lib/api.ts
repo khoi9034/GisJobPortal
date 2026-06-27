@@ -27,6 +27,13 @@ export type Job = {
   freshness_confidence?: string;
   is_stale?: boolean;
   is_closed_or_missing?: boolean;
+  reviewed_at?: string;
+  review_status?: "unreviewed" | "interested" | "not_interested" | "maybe" | "applied" | "archived";
+  review_notes?: string;
+  priority_bucket?: "urgent" | "high" | "medium" | "low";
+  close_days_remaining?: number | null;
+  needs_packet?: boolean;
+  packet_generated_at?: string;
   status: string;
   match_score: number;
   fit_summary: string;
@@ -105,6 +112,15 @@ export type Stats = {
   by_status: Record<string, number>;
 };
 
+export type ReviewQueue = {
+  new_today: Job[];
+  fresh_high_match: Job[];
+  closing_soon: Job[];
+  needs_review: Job[];
+  packet_ready: Job[];
+  applied_follow_up: Job[];
+};
+
 const demoJobs: Job[] = [
   {
     id: 1,
@@ -132,6 +148,13 @@ const demoJobs: Job[] = [
     freshness_confidence: "source_posted_date",
     is_stale: false,
     is_closed_or_missing: false,
+    reviewed_at: "",
+    review_status: "unreviewed",
+    review_notes: "",
+    priority_bucket: "urgent",
+    close_days_remaining: 6,
+    needs_packet: true,
+    packet_generated_at: "",
     status: "new",
     match_score: 80,
     fit_summary: "Strong ArcGIS and web GIS overlap. Matches parcel, zoning, and land use experience.",
@@ -192,6 +215,13 @@ const demoJobs: Job[] = [
     freshness_confidence: "source_posted_date",
     is_stale: false,
     is_closed_or_missing: false,
+    reviewed_at: "",
+    review_status: "unreviewed",
+    review_notes: "",
+    priority_bucket: "medium",
+    close_days_remaining: null,
+    needs_packet: true,
+    packet_generated_at: "",
     status: "new",
     match_score: 71,
     fit_summary: "Planning, GIS, Python automation, and North Carolina location fit.",
@@ -237,11 +267,23 @@ function demoPacket(job: Job): ApplicationPacket {
   return { job_id: job.id, exists: true, packet_dir: "demo", files, document_checklist: job.document_checklist, generation_mode: "template_fallback" };
 }
 
+function demoReviewQueue(): ReviewQueue {
+  return {
+    new_today: [],
+    fresh_high_match: demoJobs.filter((job) => job.match_score >= 75 && job.review_status === "unreviewed"),
+    closing_soon: demoJobs.filter((job) => (job.close_days_remaining ?? 99) <= 7),
+    needs_review: demoJobs.filter((job) => job.review_status === "unreviewed"),
+    packet_ready: demoJobs.filter((job) => ["materials_generated", "ready_to_apply"].includes(job.status)),
+    applied_follow_up: demoJobs.filter((job) => ["applied", "follow_up_needed"].includes(job.status)),
+  };
+}
+
 function demoApi<T>(path: string, init?: RequestInit): T {
   const method = init?.method || "GET";
   const jobMatch = path.match(/^\/jobs\/(\d+)/);
   const job = jobMatch ? demoJobs.find((row) => row.id === Number(jobMatch[1])) || demoJobs[0] : demoJobs[0];
   if (path === "/jobs") return demoJobs as T;
+  if (path.startsWith("/review/queue")) return demoReviewQueue() as T;
   if (path === "/stats/overview") return demoStats() as T;
   if (path === "/sources") {
     return [
@@ -294,9 +336,16 @@ function demoApi<T>(path: string, init?: RequestInit): T {
   }
   if (path === "/profile") return { name: "Khoi Nguyen", portfolio: "https://portfolio-gamma-six-p15gdz1e0v.vercel.app/", skills: ["ArcGIS Pro", "ArcGIS Enterprise", "Python", "SQL"] } as T;
   if (path === "/ai/status") return { provider: "openrouter", model: "openrouter/pony-alpha", configured: false, mode: "template_fallback" } as T;
-  if (path.includes("/application-packet") || path.includes("/generate-application-packet")) return demoPacket(job) as T;
+  if (path.includes("/generate-application-packet")) {
+    job.status = "materials_generated";
+    job.needs_packet = false;
+    job.packet_generated_at = new Date().toISOString().slice(0, 10);
+    return demoPacket(job) as T;
+  }
+  if (path.includes("/application-packet")) return demoPacket(job) as T;
   if (jobMatch && method !== "GET") {
     if (path.endsWith("/status") && init?.body) job.status = JSON.parse(String(init.body)).status;
+    if (path.endsWith("/review") && init?.body) Object.assign(job, JSON.parse(String(init.body)), { reviewed_at: new Date().toISOString().slice(0, 10) });
     if (path.endsWith("/notes") && init?.body) job.notes = JSON.parse(String(init.body)).notes;
     if (path.endsWith("/document-checklist") && init?.body) job.document_checklist = JSON.parse(String(init.body)).checklist || job.document_checklist;
     return job as T;
