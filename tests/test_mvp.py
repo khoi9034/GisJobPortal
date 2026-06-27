@@ -1,10 +1,13 @@
 import tempfile
 import unittest
+import io
 import os
 import json
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from scripts import setup_usajobs, source_toggle
 from backend.app import collectors, db
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -179,6 +182,53 @@ class MvpTests(unittest.TestCase):
                 row = validate_source(source)
         self.assertEqual(row["validation_status"], "warning")
         self.assertIn("credentials missing", row["last_error"].lower())
+
+    def test_setup_usajobs_reports_missing_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env_path = root / ".env"
+            sources_path = root / "sources.yaml"
+            sources_path.write_text("sources:\n- name: USAJobs API\n  type: api\n  url: https://data.usajobs.gov/api/search\n  enabled: false\n", encoding="utf-8")
+            output = io.StringIO()
+            with patch.dict(os.environ, {"USAJOBS_USER_AGENT": "", "USAJOBS_AUTHORIZATION_KEY": "", "USAJOBS_API_KEY": ""}, clear=False), redirect_stdout(output):
+                code = setup_usajobs.main(env_path, sources_path)
+        text = output.getvalue()
+        self.assertEqual(code, 1)
+        self.assertIn("Missing USAJobs credentials", text)
+        self.assertIn("Do not commit backend/.env", text)
+
+    def test_setup_usajobs_does_not_print_key(self):
+        secret = "never-print-me"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env_path = root / ".env"
+            sources_path = root / "sources.yaml"
+            env_path.write_text(f"USAJOBS_USER_AGENT=test@example.com\nUSAJOBS_AUTHORIZATION_KEY={secret}\n", encoding="utf-8")
+            sources_path.write_text("sources:\n- name: USAJobs API\n  type: api\n  url: https://data.usajobs.gov/api/search\n  enabled: true\n", encoding="utf-8")
+            output = io.StringIO()
+            with patch("scripts.setup_usajobs.validate_source", return_value={"validation_status": "ok", "reachable_endpoint": True, "jobs_sampled": 2, "last_error": ""}):
+                with redirect_stdout(output):
+                    code = setup_usajobs.main(env_path, sources_path)
+        text = output.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("Validation status: ok", text)
+        self.assertNotIn(secret, text)
+
+    def test_source_toggle_enables_and_disables_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sources.yaml"
+            path.write_text("sources:\n- name: USAJobs API\n  type: api\n  enabled: false\n", encoding="utf-8")
+            enabled = source_toggle.set_enabled("USAJobs API", True, path)
+            disabled = source_toggle.set_enabled("USAJobs API", False, path)
+        self.assertTrue(enabled["enabled"])
+        self.assertFalse(disabled["enabled"])
+
+    def test_source_toggle_fails_when_source_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sources.yaml"
+            path.write_text("sources:\n- name: Sample GIS Jobs\n  type: manual\n  enabled: true\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                source_toggle.set_enabled("USAJobs API", True, path)
 
     def test_source_validation_endpoint_includes_freshness_support_fields(self):
         rows = validate_source_config()

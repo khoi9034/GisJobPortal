@@ -106,6 +106,20 @@ function filterJobs(jobs: Job[], view: View, freshness: FreshnessFilter) {
   return sortJobs(rows);
 }
 
+function credentialsPresent(source: Source) {
+  if (!source.name.toLowerCase().includes("usajobs")) return "unknown";
+  if ((source.last_error || source.errors_last_run || "").toLowerCase().includes("credentials missing")) return "no";
+  return source.validation_status === "ok" ? "yes" : "unknown";
+}
+
+function nextSourceAction(source: Source) {
+  if (credentialsPresent(source) === "no") return "Add credentials";
+  if (!source.enabled) return "Enable source";
+  if (!source.validation_status || source.validation_status === "disabled" || source.validation_status !== "ok") return "Validate source";
+  if ((source.jobs_found_last_run || 0) === 0) return "Refresh jobs";
+  return "Ready";
+}
+
 export default function DashboardPage({ view }: { view: View }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -212,6 +226,7 @@ export default function DashboardPage({ view }: { view: View }) {
                   {(source.supports_updated_date || source.updated_date_supported) && <span className="chip">updated date</span>}
                   {source.first_seen_only && <span className="chip">first seen only</span>}
                 </div>
+                <ActivationChecklist source={source} />
               </p>
             ))}
           </section>
@@ -266,6 +281,23 @@ export default function DashboardPage({ view }: { view: View }) {
         {!visibleJobs.length && <p className="muted">No jobs in this view yet.</p>}
       </div>
     </Shell>
+  );
+}
+
+function ActivationChecklist({ source }: { source: Source }) {
+  return (
+    <div className="muted">
+      <br />
+      Credentials present: {credentialsPresent(source)}
+      <br />
+      Source enabled: {source.enabled ? "yes" : "no"}
+      <br />
+      Validation status: {source.validation_status || "unknown"}
+      <br />
+      Last sampled jobs: {source.jobs_sampled ?? 0}
+      <br />
+      Next action: {nextSourceAction(source)}
+    </div>
   );
 }
 

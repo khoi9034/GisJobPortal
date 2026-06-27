@@ -107,6 +107,7 @@ Disabled static sources are kept as review targets only. The app intentionally a
 Keep new real sources disabled until validation passes.
 
 ```powershell
+.\.venv\Scripts\python scripts\setup_usajobs.py
 .\.venv\Scripts\python scripts\validate_sources.py
 .\.venv\Scripts\python scripts\refresh_jobs.py
 ```
@@ -120,10 +121,11 @@ Keep new real sources disabled until validation passes.
 - Do not commit credentials, `.env`, private documents, or generated packets.
 
 See `docs/SOURCE_ONBOARDING_CHECKLIST.md` before enabling a new source.
+See `docs/LIVE_SOURCE_TARGETS.md` for the current target list.
 
-### USAJobs
+### Activate USAJobs
 
-USAJobs is the first real API collector. It is disabled by default because USAJobs requires an API key and the email/user-agent used for that key.
+USAJobs is the first real API collector. It is disabled by default because USAJobs requires a USAJobs Developer API key and the email/user-agent used for that key.
 
 Add local-only credentials to `backend/.env`:
 
@@ -132,7 +134,18 @@ USAJOBS_USER_AGENT=your_email@example.com
 USAJOBS_AUTHORIZATION_KEY=replace_with_your_local_secret
 ```
 
-Then set `enabled: true` for `USAJobs API` in `config/sources.yaml` and run the refresh command. `default_date_posted_days: 30` keeps USAJobs queries recent by default; lower it to 7 or 14 for stricter freshness. Do not commit `backend/.env` or the API key.
+Then enable the source and validate it before refreshing:
+
+```powershell
+.\.venv\Scripts\python scripts\source_toggle.py enable "USAJobs API"
+.\.venv\Scripts\python scripts\setup_usajobs.py
+.\.venv\Scripts\python scripts\validate_sources.py
+.\.venv\Scripts\python scripts\refresh_jobs.py
+```
+
+Use `scripts\source_toggle.py list` to check enabled/disabled status. Do not commit `backend/.env` or the API key.
+
+USAJobs supports `source_posted_at` from `PublicationStartDate` and `source_closes_at` from `ApplicationCloseDate`. Keep `default_date_posted_days: 30` or lower in `config/sources.yaml` so refreshes stay recent; lower it to 7 or 14 for stricter freshness.
 
 Sources can declare freshness coverage with:
 
