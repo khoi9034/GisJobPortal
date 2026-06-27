@@ -144,6 +144,12 @@ export default function DashboardPage({ view }: { view: View }) {
     await load();
   }
 
+  async function validateSources() {
+    const rows = await api<Source[]>("/sources/validate");
+    setSources(rows);
+    setMessage("Source validation complete.");
+  }
+
   async function setStatus(job: Job, status: string) {
     await api<Job>(`/jobs/${job.id}/status`, {
       method: "PATCH",
@@ -185,9 +191,10 @@ export default function DashboardPage({ view }: { view: View }) {
           </section>
           <section className="settings-section">
             <h3>Job Sources</h3>
+            <button className="button" onClick={validateSources}>Validate Sources</button>
             {sources.map((source) => (
               <p key={source.name}>
-                <strong>{source.name}</strong> <span className="chip">{source.type}</span> <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span><br />
+                <strong>{source.name}</strong> <span className="chip">{source.type}</span> <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span><br />
                 <span className="muted">{source.notes}</span>
                 {(source.last_checked_at || source.last_checked || source.last_status) && (
                   <>
@@ -198,7 +205,7 @@ export default function DashboardPage({ view }: { view: View }) {
                   </>
                 )}
                 <br />
-                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
+                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0} | sampled: {source.jobs_sampled ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
                 <div className="chips">
                   {(source.supports_posted_date || source.posted_date_supported) && <span className="chip green">posted date</span>}
                   {(source.supports_close_date || source.close_date_supported) && <span className="chip green">close date</span>}

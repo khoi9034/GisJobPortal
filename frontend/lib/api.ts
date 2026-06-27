@@ -75,12 +75,16 @@ export type Source = {
   type: string;
   url: string;
   enabled: boolean;
+  status?: string;
+  validation_status?: "disabled" | "ok" | "warning" | "error";
   notes: string;
   last_checked?: string;
   last_status?: string;
   last_checked_at?: string;
   last_success_at?: string;
   last_error?: string;
+  last_validated_at?: string;
+  jobs_sampled?: number;
   jobs_found_last_run?: number;
   errors_last_run?: string;
   posted_date_supported?: boolean;
@@ -246,11 +250,15 @@ function demoApi<T>(path: string, init?: RequestInit): T {
         type: "manual",
         url: "demo",
         enabled: true,
+        status: "ok",
+        validation_status: "ok",
         notes: "Bundled frontend demo data",
         last_checked: "",
         last_checked_at: "",
         last_success_at: "",
         last_error: "",
+        last_validated_at: "",
+        jobs_sampled: demoJobs.length,
         last_status: "demo mode",
         jobs_found_last_run: demoJobs.length,
         errors_last_run: "",
@@ -262,6 +270,25 @@ function demoApi<T>(path: string, init?: RequestInit): T {
         supports_close_date: false,
         supports_updated_date: false,
         freshness_confidence_default: "source_posted_date",
+      },
+    ] as T;
+  }
+  if (path === "/sources/validate") {
+    return [
+      {
+        name: "Demo Jobs",
+        type: "manual",
+        enabled: true,
+        status: "ok",
+        validation_status: "ok",
+        notes: "Bundled frontend demo data",
+        jobs_sampled: demoJobs.length,
+        supports_posted_date: true,
+        supports_updated_date: false,
+        supports_close_date: false,
+        first_seen_only: false,
+        freshness_confidence_default: "source_posted_date",
+        last_error: "",
       },
     ] as T;
   }

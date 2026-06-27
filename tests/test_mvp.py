@@ -10,7 +10,7 @@ from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import ai_status_endpoint, health, sources as sources_endpoint
+from backend.app.api import ai_status_endpoint, health, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -24,6 +24,7 @@ from backend.app.paths import api_env, cors_origins, database_path
 from backend.app.profile import load_profile
 from backend.app.scoring import score_job
 from backend.app.sources import load_search_profiles, load_sources
+from backend.app.source_validation import validate_source
 
 
 class MvpTests(unittest.TestCase):
@@ -140,6 +141,49 @@ class MvpTests(unittest.TestCase):
         rows = sources_endpoint()
         self.assertTrue(rows)
         for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "last_checked_at", "last_error"]:
+            self.assertIn(field, rows[0])
+
+    def test_validate_disabled_source_does_not_call_network(self):
+        source = {"name": "Disabled Greenhouse", "type": "greenhouse", "url": "https://boards.greenhouse.io/example", "enabled": False}
+        with patch("backend.app.source_validation.collect_from_source") as collector:
+            row = validate_source(source)
+        collector.assert_not_called()
+        self.assertEqual(row["validation_status"], "disabled")
+
+    def test_validation_redacts_secret_values(self):
+        source = {"name": "Bad Lever", "type": "lever", "url": "https://jobs.lever.co/example", "site": "example", "enabled": True}
+        with patch.dict(os.environ, {"USAJOBS_AUTHORIZATION_KEY": "super-secret-token"}, clear=False):
+            with patch("backend.app.source_validation.collect_from_source", side_effect=RuntimeError("failed super-secret-token")):
+                row = validate_source(source)
+        self.assertEqual(row["validation_status"], "error")
+        self.assertNotIn("super-secret-token", json.dumps(row))
+
+    def test_invalid_greenhouse_token_returns_error_not_crash(self):
+        source = {"name": "Bad Greenhouse", "type": "greenhouse", "url": "https://boards.greenhouse.io/bad", "board_token": "bad", "enabled": True}
+        with patch("backend.app.source_validation.collect_from_source", side_effect=RuntimeError("404 not found")):
+            row = validate_source(source)
+        self.assertEqual(row["validation_status"], "error")
+        self.assertIn("404", row["last_error"])
+
+    def test_invalid_lever_site_returns_error_not_crash(self):
+        source = {"name": "Bad Lever", "type": "lever", "url": "https://jobs.lever.co/bad", "site": "bad", "enabled": True}
+        with patch("backend.app.source_validation.collect_from_source", side_effect=RuntimeError("404 not found")):
+            row = validate_source(source)
+        self.assertEqual(row["validation_status"], "error")
+        self.assertIn("404", row["last_error"])
+
+    def test_usajobs_missing_credentials_returns_warning(self):
+        source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}
+        with patch.dict(os.environ, {"USAJOBS_USER_AGENT": "", "USAJOBS_AUTHORIZATION_KEY": "", "USAJOBS_API_KEY": ""}, clear=False):
+            with patch("backend.app.collectors.load_backend_env"):
+                row = validate_source(source)
+        self.assertEqual(row["validation_status"], "warning")
+        self.assertIn("credentials missing", row["last_error"].lower())
+
+    def test_source_validation_endpoint_includes_freshness_support_fields(self):
+        rows = validate_source_config()
+        self.assertTrue(rows)
+        for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "jobs_sampled"]:
             self.assertIn(field, rows[0])
 
     def test_usajobs_collector_normalizes_sample_response(self):

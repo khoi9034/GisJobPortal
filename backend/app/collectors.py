@@ -96,10 +96,10 @@ def normalize_usajobs_item(item: dict[str, Any], source: dict[str, Any]) -> dict
 
 def fetch_usajobs(term: str, source: dict[str, Any]) -> dict[str, Any]:
     load_backend_env()
-    api_key = os.getenv("USAJOBS_API_KEY", "")
+    api_key = os.getenv("USAJOBS_AUTHORIZATION_KEY") or os.getenv("USAJOBS_API_KEY", "")
     user_agent = os.getenv("USAJOBS_USER_AGENT", "")
     if not api_key or not user_agent or api_key.lower().startswith("replace_") or user_agent == "your_email@example.com":
-        raise RuntimeError("USAJobs credentials missing; set USAJOBS_USER_AGENT and USAJOBS_API_KEY in backend/.env")
+        raise RuntimeError("USAJobs credentials missing; set USAJOBS_USER_AGENT and USAJOBS_AUTHORIZATION_KEY in backend/.env")
 
     params = {
         "Keyword": term,

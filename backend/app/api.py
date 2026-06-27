@@ -21,6 +21,7 @@ from .materials import generate_materials
 from .paths import api_env, cors_origins
 from .profile import load_profile
 from .scoring import score_job
+from .source_validation import validate_sources
 from .sources import load_sources, save_source
 
 app = FastAPI(title="GIS Apply Copilot")
@@ -220,6 +221,11 @@ def sources() -> list[dict[str, Any]]:
         db.upsert_source(source)
     saved = {source["name"]: source for source in db.list_sources()}
     return [saved.get(source["name"], source) for source in configured]
+
+
+@app.get("/sources/validate")
+def validate_source_config() -> list[dict[str, Any]]:
+    return validate_sources(store=True)
 
 
 @app.get("/profile")

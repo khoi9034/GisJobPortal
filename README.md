@@ -102,6 +102,25 @@ Disabled static sources are kept as review targets only. The app intentionally a
 
 `config/search_profiles.yaml` stores GIS/planning search profiles such as `gis_analyst_nc`, `planning_gis_nc`, `consulting_gis`, and `federal_gis`. These are simple keyword/location profiles for source tuning; scoring still decides which collected jobs rise to the top.
 
+## Activating Real Job Sources
+
+Keep new real sources disabled until validation passes.
+
+```powershell
+.\.venv\Scripts\python scripts\validate_sources.py
+.\.venv\Scripts\python scripts\refresh_jobs.py
+```
+
+- USAJobs requires local-only `USAJOBS_USER_AGENT` and `USAJOBS_AUTHORIZATION_KEY` in `backend/.env`.
+- Greenhouse requires a public `board_token`.
+- Lever requires a public `site` slug.
+- Manual sources are tracked but not scraped unless a safe collector exists.
+- Greenhouse `updated_at` is stored as `source_updated_at`, not a posted date.
+- Some sources use `first_seen_at` because the public endpoint does not expose a reliable posted date.
+- Do not commit credentials, `.env`, private documents, or generated packets.
+
+See `docs/SOURCE_ONBOARDING_CHECKLIST.md` before enabling a new source.
+
 ### USAJobs
 
 USAJobs is the first real API collector. It is disabled by default because USAJobs requires an API key and the email/user-agent used for that key.
@@ -110,7 +129,7 @@ Add local-only credentials to `backend/.env`:
 
 ```text
 USAJOBS_USER_AGENT=your_email@example.com
-USAJOBS_API_KEY=replace_with_your_local_secret
+USAJOBS_AUTHORIZATION_KEY=replace_with_your_local_secret
 ```
 
 Then set `enabled: true` for `USAJobs API` in `config/sources.yaml` and run the refresh command. `default_date_posted_days: 30` keeps USAJobs queries recent by default; lower it to 7 or 14 for stricter freshness. Do not commit `backend/.env` or the API key.

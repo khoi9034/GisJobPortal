@@ -160,6 +160,9 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 last_checked TEXT DEFAULT '',
                 last_status TEXT DEFAULT '',
                 last_success_at TEXT DEFAULT '',
+                validation_status TEXT DEFAULT '',
+                last_validated_at TEXT DEFAULT '',
+                jobs_sampled INTEGER NOT NULL DEFAULT 0,
                 jobs_found_last_run INTEGER NOT NULL DEFAULT 0,
                 errors_last_run TEXT DEFAULT '',
                 posted_date_supported INTEGER NOT NULL DEFAULT 0,
@@ -228,6 +231,9 @@ def ensure_source_columns(conn: sqlite3.Connection) -> None:
         "last_checked": "TEXT DEFAULT ''",
         "last_status": "TEXT DEFAULT ''",
         "last_success_at": "TEXT DEFAULT ''",
+        "validation_status": "TEXT DEFAULT ''",
+        "last_validated_at": "TEXT DEFAULT ''",
+        "jobs_sampled": "INTEGER NOT NULL DEFAULT 0",
         "jobs_found_last_run": "INTEGER NOT NULL DEFAULT 0",
         "errors_last_run": "TEXT DEFAULT ''",
         "posted_date_supported": "INTEGER NOT NULL DEFAULT 0",
@@ -329,12 +335,34 @@ def list_sources(path: Path | str = DB_PATH) -> list[dict[str, Any]]:
                 "supports_close_date": item.get("close_date_supported", False),
                 "supports_updated_date": item.get("updated_date_supported", False),
                 "freshness_confidence_default": "first_seen_only" if item.get("first_seen_only") else "source_posted_date",
+                "status": item.get("validation_status") or ("enabled" if item.get("enabled") else "disabled"),
                 "last_checked_at": item.get("last_checked", ""),
                 "last_error": item.get("errors_last_run", ""),
             }
         )
         sources.append(item)
     return sources
+
+
+def record_source_validation(source: dict[str, Any], summary: dict[str, Any], path: Path | str = DB_PATH) -> None:
+    upsert_source(source, path)
+    with connection(path) as conn:
+        conn.execute(
+            """
+            UPDATE job_sources
+            SET validation_status = ?, last_validated_at = ?, jobs_sampled = ?,
+                jobs_found_last_run = ?, errors_last_run = ?
+            WHERE name = ?
+            """,
+            (
+                summary.get("validation_status", ""),
+                summary.get("last_validated_at", ""),
+                int(summary.get("jobs_sampled") or 0),
+                int(summary.get("jobs_found_last_run") or summary.get("jobs_sampled") or 0),
+                summary.get("last_error", ""),
+                source["name"],
+            ),
+        )
 
 
 def duplicate_key(job: dict[str, Any]) -> tuple[str, str, str, str]:
