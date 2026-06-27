@@ -89,7 +89,7 @@ def job(job_id: int) -> dict[str, Any]:
 
 
 @app.post("/jobs/refresh")
-def refresh() -> dict[str, int]:
+def refresh() -> dict[str, Any]:
     return refresh_jobs()
 
 
@@ -207,7 +207,11 @@ def overview() -> dict[str, Any]:
 
 @app.get("/sources")
 def sources() -> list[dict[str, Any]]:
-    return load_sources()
+    configured = load_sources()
+    for source in configured:
+        db.upsert_source(source)
+    saved = {source["name"]: source for source in db.list_sources()}
+    return [saved.get(source["name"], source) for source in configured]
 
 
 @app.get("/profile")

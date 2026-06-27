@@ -70,6 +70,8 @@ vercel deploy --prebuilt --prod
 
 The MVP loads enabled sources from `config/sources.yaml`. The default enabled source is `data/sample_jobs.json`, so the dashboard works before real collectors are connected.
 
+The refresh command reports sources checked, disabled sources skipped, jobs collected, duplicates skipped, jobs scored, match bands, and per-source errors without stopping the full refresh.
+
 ## Add Job Sources
 
 Edit `config/sources.yaml` or use `POST /sources`.
@@ -84,6 +86,23 @@ Supported source types:
 - `manual`
 
 Disabled static sources are kept as review targets only. The app intentionally avoids LinkedIn/Indeed scraping and portal automation.
+
+### USAJobs
+
+USAJobs is the first real API collector. It is disabled by default because USAJobs requires an API key and the email/user-agent used for that key.
+
+Add local-only credentials to `backend/.env`:
+
+```text
+USAJOBS_USER_AGENT=your_email@example.com
+USAJOBS_API_KEY=replace_with_your_local_secret
+```
+
+Then set `enabled: true` for `USAJobs API` in `config/sources.yaml` and run the refresh command. Do not commit `backend/.env` or the API key.
+
+### Manual Sources
+
+Manual career-page sources are for human review and copy/paste intake only. To add one safely, add a disabled `manual` source with the career page URL and notes. Do not automate LinkedIn, Indeed, Workday, login-gated portals, or application submission.
 
 ## Private Documents
 

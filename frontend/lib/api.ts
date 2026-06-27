@@ -59,6 +59,16 @@ export type AiStatus = {
   mode: "pony_alpha" | "template_fallback";
 };
 
+export type Source = {
+  name: string;
+  type: string;
+  url: string;
+  enabled: boolean;
+  notes: string;
+  last_checked?: string;
+  last_status?: string;
+};
+
 export type Stats = {
   total: number;
   high_matches: number;
@@ -183,7 +193,19 @@ function demoApi<T>(path: string, init?: RequestInit): T {
   const job = jobMatch ? demoJobs.find((row) => row.id === Number(jobMatch[1])) || demoJobs[0] : demoJobs[0];
   if (path === "/jobs") return demoJobs as T;
   if (path === "/stats/overview") return demoStats() as T;
-  if (path === "/sources") return [{ name: "Demo Jobs", type: "manual", url: "demo", enabled: true, notes: "Bundled frontend demo data" }] as T;
+  if (path === "/sources") {
+    return [
+      {
+        name: "Demo Jobs",
+        type: "manual",
+        url: "demo",
+        enabled: true,
+        notes: "Bundled frontend demo data",
+        last_checked: "",
+        last_status: "demo mode",
+      },
+    ] as T;
+  }
   if (path === "/profile") return { name: "Khoi Nguyen", portfolio: "https://portfolio-gamma-six-p15gdz1e0v.vercel.app/", skills: ["ArcGIS Pro", "ArcGIS Enterprise", "Python", "SQL"] } as T;
   if (path === "/ai/status") return { provider: "openrouter", model: "openrouter/pony-alpha", configured: false, mode: "template_fallback" } as T;
   if (path.includes("/application-packet") || path.includes("/generate-application-packet")) return demoPacket(job) as T;

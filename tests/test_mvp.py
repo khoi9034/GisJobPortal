@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.app import db
+from backend.app import collectors, db
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
@@ -93,6 +93,57 @@ class MvpTests(unittest.TestCase):
         sources = load_sources()
         self.assertTrue(any(source["type"] == "manual" and source["enabled"] for source in sources))
         self.assertTrue(all(source["type"] in {"api", "rss", "greenhouse", "lever", "static_url", "manual"} for source in sources))
+
+    def test_usajobs_collector_normalizes_sample_response(self):
+        source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}
+        item = {
+            "MatchedObjectDescriptor": {
+                "PositionTitle": "Geospatial Analyst",
+                "OrganizationName": "U.S. Geological Survey",
+                "PositionLocationDisplay": "Raleigh, North Carolina",
+                "PositionURI": "https://www.usajobs.gov/job/123",
+                "ApplyURI": ["https://www.usajobs.gov/apply/123"],
+                "QualificationSummary": "GIS, Python, and spatial analysis experience.",
+                "PublicationStartDate": "2026-06-20",
+                "PositionRemuneration": [{"MinimumRange": "62000", "MaximumRange": "82000"}],
+                "UserArea": {
+                    "Details": {
+                        "JobSummary": "Support geospatial data workflows.",
+                        "MajorDuties": "Maintain GIS layers and web maps.",
+                        "Requirements": "Public trust background check.",
+                    }
+                },
+            }
+        }
+        job = collectors.normalize_usajobs_item(item, source)
+        self.assertEqual(job["title"], "Geospatial Analyst")
+        self.assertEqual(job["company"], "U.S. Geological Survey")
+        self.assertEqual(job["apply_url"], "https://www.usajobs.gov/apply/123")
+        self.assertEqual(job["salary_min"], 62000)
+        self.assertIn("spatial analysis", job["requirements"])
+
+    def test_disabled_sources_are_skipped_by_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            result = collectors.refresh_jobs(
+                path,
+                sources_override=[
+                    {"name": "Disabled Manual", "type": "manual", "url": "data/sample_jobs.json", "enabled": False, "notes": ""}
+                ],
+            )
+        self.assertEqual(result["sources_checked"], 0)
+        self.assertEqual(result["sources_skipped"], 1)
+        self.assertEqual(result["jobs_collected"], 0)
+
+    def test_collector_errors_do_not_crash_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            source = {"name": "Broken API", "type": "api", "url": "https://example.com", "enabled": True, "notes": ""}
+            with patch("backend.app.collectors.collect_from_source", side_effect=RuntimeError("boom")):
+                result = collectors.refresh_jobs(path, sources_override=[source])
+        self.assertEqual(result["sources_checked"], 1)
+        self.assertEqual(result["jobs_collected"], 0)
+        self.assertEqual(result["errors"], {"Broken API": "boom"})
 
     def test_gitignore_protects_private_documents(self):
         patterns = Path(".gitignore").read_text(encoding="utf-8")

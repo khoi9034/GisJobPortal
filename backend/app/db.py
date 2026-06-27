@@ -133,7 +133,9 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 type TEXT NOT NULL,
                 url TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1,
-                notes TEXT DEFAULT ''
+                notes TEXT DEFAULT '',
+                last_checked TEXT DEFAULT '',
+                last_status TEXT DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS application_materials (
@@ -165,6 +167,7 @@ def init_db(path: Path | str = DB_PATH) -> None:
             """
         )
         ensure_job_columns(conn)
+        ensure_source_columns(conn)
 
 
 def ensure_job_columns(conn: sqlite3.Connection) -> None:
@@ -176,6 +179,17 @@ def ensure_job_columns(conn: sqlite3.Connection) -> None:
     for column, ddl in additions.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
+
+
+def ensure_source_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(job_sources)").fetchall()}
+    additions = {
+        "last_checked": "TEXT DEFAULT ''",
+        "last_status": "TEXT DEFAULT ''",
+    }
+    for column, ddl in additions.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE job_sources ADD COLUMN {column} {ddl}")
 
 
 def dumps(value: Any) -> str:
@@ -215,6 +229,22 @@ def upsert_source(source: dict[str, Any], path: Path | str = DB_PATH) -> None:
                 source.get("notes", ""),
             ),
         )
+
+
+def mark_source_checked(name: str, status: str, path: Path | str = DB_PATH) -> None:
+    init_db(path)
+    with connection(path) as conn:
+        conn.execute(
+            "UPDATE job_sources SET last_checked = ?, last_status = ? WHERE name = ?",
+            (datetime.now(UTC).isoformat(), status, name),
+        )
+
+
+def list_sources(path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+    init_db(path)
+    with connection(path) as conn:
+        rows = conn.execute("SELECT * FROM job_sources ORDER BY name").fetchall()
+    return [{**dict(row), "enabled": bool(row["enabled"])} for row in rows]
 
 
 def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | None, bool]:

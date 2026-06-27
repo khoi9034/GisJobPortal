@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, AiStatus, Job, Stats } from "../lib/api";
+import { api, AiStatus, Job, Source, Stats } from "../lib/api";
 
 type View = "overview" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 
@@ -62,7 +62,7 @@ function filterJobs(jobs: Job[], view: View) {
 export default function DashboardPage({ view }: { view: View }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [sources, setSources] = useState<any[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [message, setMessage] = useState("");
@@ -71,7 +71,7 @@ export default function DashboardPage({ view }: { view: View }) {
     const [jobRows, overview, sourceRows, profileRow, aiRow] = await Promise.all([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
-      api<any[]>("/sources"),
+      api<Source[]>("/sources"),
       api<any>("/profile"),
       api<AiStatus>("/ai/status"),
     ]);
@@ -141,6 +141,14 @@ export default function DashboardPage({ view }: { view: View }) {
               <p key={source.name}>
                 <strong>{source.name}</strong> <span className="chip">{source.type}</span> <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span><br />
                 <span className="muted">{source.notes}</span>
+                {(source.last_checked || source.last_status) && (
+                  <>
+                    <br />
+                    <span className="muted">
+                      Last checked: {source.last_checked || "never"}{source.last_status ? ` - ${source.last_status}` : ""}
+                    </span>
+                  </>
+                )}
               </p>
             ))}
           </section>
