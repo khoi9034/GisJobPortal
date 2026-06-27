@@ -18,6 +18,7 @@ from .documents import (
     transcript_summary,
 )
 from .materials import generate_materials
+from .paths import api_env, cors_origins
 from .profile import load_profile
 from .scoring import score_job
 from .sources import load_sources, save_source
@@ -25,7 +26,7 @@ from .sources import load_sources, save_source
 app = FastAPI(title="GIS Apply Copilot")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,6 +64,13 @@ def ensure_seeded() -> None:
     db.init_db()
     if not db.list_jobs():
         refresh_jobs()
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    with db.connection() as conn:
+        conn.execute("SELECT 1").fetchone()
+    return {"status": "ok", "api_env": api_env(), "database": "connected"}
 
 
 @app.get("/jobs")

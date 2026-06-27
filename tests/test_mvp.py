@@ -10,7 +10,7 @@ from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import ai_status_endpoint
+from backend.app.api import ai_status_endpoint, health
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -19,6 +19,7 @@ from backend.app.documents import (
     should_use_transcript,
 )
 from backend.app.materials import format_material_context, generate_materials
+from backend.app.paths import api_env, cors_origins, database_path
 from backend.app.profile import load_profile
 from backend.app.scoring import score_job
 from backend.app.sources import load_sources
@@ -95,9 +96,25 @@ class MvpTests(unittest.TestCase):
 
     def test_gitignore_protects_private_documents(self):
         patterns = Path(".gitignore").read_text(encoding="utf-8")
-        for pattern in ["private/", "private/**", "generated/application_packets/", "generated/application_packets/**", "*.pdf", "*.docx", ".env", ".env.*", "*.env", ".vercel"]:
+        for pattern in ["private/", "private/**", "generated/application_packets/", "generated/application_packets/**", "*.pdf", "*.docx", "*.db", ".env", ".env.*", "*.env", ".vercel"]:
             self.assertIn(pattern, patterns)
         self.assertIn("!private/resume/place_resume_here.md", patterns)
+
+    def test_health_endpoint_reports_sqlite_connected(self):
+        result = health()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["database"], "connected")
+
+    def test_env_driven_cors_and_database_url(self):
+        with patch.dict(os.environ, {"CORS_ORIGINS": "[http://localhost:3000,https://gis-job-portal.vercel.app]", "API_ENV": "test", "DATABASE_URL": "sqlite:///./tmp/test.db"}, clear=False):
+            self.assertEqual(api_env(), "test")
+            self.assertEqual(cors_origins(), ["http://localhost:3000", "https://gis-job-portal.vercel.app"])
+            self.assertTrue(str(database_path()).endswith("tmp\\test.db") or str(database_path()).endswith("tmp/test.db"))
+
+    def test_postgres_url_is_explicitly_future_work(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://example"}, clear=False):
+            with self.assertRaises(ValueError):
+                database_path()
 
     def test_resume_extraction_creates_local_markdown(self):
         with tempfile.TemporaryDirectory() as tmp:

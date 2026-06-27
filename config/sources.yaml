@@ -4,11 +4,21 @@ sources:
     url: data/sample_jobs.json
     enabled: true
     notes: Local sample jobs for MVP development and demos.
+  - name: USAJobs API
+    type: api
+    url: https://developer.usajobs.gov/API-Reference
+    enabled: false
+    notes: Public federal jobs API placeholder; requires approved API credentials later.
   - name: NC Government Jobs
     type: static_url
     url: https://www.governmentjobs.com/careers/northcarolina
     enabled: false
     notes: Add API/RSS integration later if allowed by terms.
+  - name: City and County Career Pages
+    type: manual
+    url: https://www.governmentjobs.com/
+    enabled: false
+    notes: Manual review bucket for city/county career pages; no prohibited scraping or auto-apply.
   - name: City of Charlotte Jobs
     type: static_url
     url: https://www.charlottenc.gov/Services/Jobs
@@ -24,3 +34,8 @@ sources:
     url: https://jobs.lever.co/example
     enabled: false
     notes: Placeholder for companies with public Lever boards.
+  - name: Consulting Firm Manual Sources
+    type: manual
+    url: https://example.com/consulting-careers
+    enabled: false
+    notes: Manual source bucket for GIS/planning/location-intelligence consulting firms.
