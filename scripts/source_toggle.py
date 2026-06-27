@@ -21,12 +21,27 @@ def write_config(data: dict, path: Path = SOURCES_PATH) -> None:
 
 def set_enabled(name: str, enabled: bool, path: Path = SOURCES_PATH) -> dict:
     data = read_config(path)
+    found = None
     for source in data.get("sources", []):
         if source.get("name") == name:
             source["enabled"] = enabled
-            write_config(data, path)
-            return source
-    raise ValueError(f"Source not found: {name}")
+            found = source
+            break
+    if not found:
+        raise ValueError(f"Source not found: {name}")
+
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    in_source = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("- name: "):
+            in_source = stripped == f"- name: {name}"
+        elif in_source and stripped.startswith("enabled:"):
+            lines[index] = f"{line[:len(line) - len(line.lstrip())]}enabled: {str(enabled).lower()}"
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return found
+    write_config(data, path)
+    return found
 
 
 def list_sources(path: Path = SOURCES_PATH) -> list[dict]:

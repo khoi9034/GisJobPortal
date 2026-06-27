@@ -65,15 +65,21 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
+def join_text_parts(values: list[Any]) -> str:
+    parts: list[str] = []
+    for value in values:
+        rows = value if isinstance(value, list) else [value]
+        parts.extend(plain_text(row) for row in rows if row)
+    return "\n\n".join(filter(None, parts))
+
+
 def normalize_usajobs_item(item: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     data = item.get("MatchedObjectDescriptor", item)
     details = data.get("UserArea", {}).get("Details", {})
     salary = (data.get("PositionRemuneration") or [{}])[0]
     apply_urls = data.get("ApplyURI") or []
-    description = "\n\n".join(filter(None, [details.get("JobSummary"), details.get("MajorDuties")]))
-    requirements = "\n\n".join(
-        filter(None, [details.get("Requirements"), data.get("QualificationSummary"), details.get("Education")])
-    )
+    description = join_text_parts([details.get("JobSummary"), details.get("MajorDuties")])
+    requirements = join_text_parts([details.get("Requirements"), data.get("QualificationSummary"), details.get("Education")])
     remote = "remote" if str(details.get("RemoteIndicator", "")).lower() == "true" else ""
     return normalize_job(
         {

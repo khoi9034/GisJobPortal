@@ -231,7 +231,8 @@ class MvpTests(unittest.TestCase):
                 source_toggle.set_enabled("USAJobs API", True, path)
 
     def test_source_validation_endpoint_includes_freshness_support_fields(self):
-        rows = validate_source_config()
+        with patch("backend.app.api.validate_sources", return_value=[{"supports_posted_date": True, "supports_updated_date": False, "supports_close_date": True, "freshness_confidence_default": "source_posted_date", "jobs_sampled": 1}]):
+            rows = validate_source_config()
         self.assertTrue(rows)
         for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "jobs_sampled"]:
             self.assertIn(field, rows[0])
@@ -266,6 +267,24 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(job["source_posted_at"], "2026-06-20")
         self.assertEqual(job["source_closes_at"], "2026-07-01")
         self.assertIn("spatial analysis", job["requirements"])
+
+    def test_usajobs_collector_handles_list_text_fields(self):
+        source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}
+        item = {
+            "MatchedObjectDescriptor": {
+                "PositionTitle": "GIS Technician",
+                "OrganizationName": "Federal Agency",
+                "PositionLocationDisplay": "Charlotte, North Carolina",
+                "PositionURI": "https://www.usajobs.gov/job/456",
+                "ApplyURI": ["https://www.usajobs.gov/apply/456"],
+                "QualificationSummary": "GIS data maintenance.",
+                "UserArea": {"Details": {"MajorDuties": ["Maintain parcels.", "Publish web maps."], "Requirements": ["ArcGIS Pro"], "Education": ["GIS coursework"]}},
+            }
+        }
+        job = collectors.normalize_usajobs_item(item, source)
+        self.assertIn("Maintain parcels", job["description"])
+        self.assertIn("ArcGIS Pro", job["requirements"])
+        self.assertIn("GIS coursework", job["requirements"])
 
     def test_usajobs_query_defaults_to_recent_jobs(self):
         source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}
