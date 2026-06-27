@@ -8,12 +8,12 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from scripts import setup_usajobs, source_toggle
-from backend.app import collectors, db
+from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import ai_status_endpoint, health, sources as sources_endpoint, validate_source_config
+from backend.app.api import ai_status_endpoint, health, latest_report as latest_report_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -374,6 +374,59 @@ class MvpTests(unittest.TestCase):
         for field in ["unreviewed_jobs", "high_match_unreviewed_jobs", "packets_ready", "applied_followups_needed"]:
             self.assertIn(field, result)
         self.assertGreaterEqual(result["unreviewed_jobs"], 1)
+
+    def test_daily_report_file_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report_dir = Path(tmp) / "reports"
+            result = {"sources_checked": 1, "jobs_collected": 1, "new_jobs_inserted": 1, "duplicates_updated": 0, "unreviewed_jobs": 1, "high_match_unreviewed_jobs": 1, "closing_soon_jobs": 1, "fresh_jobs": 1, "stale_jobs": 0, "packets_ready": 0, "applied_followups_needed": 0, "errors": {}}
+            job = {**self.job, "match_score": 82, "source_posted_at": db.now_iso(), "source_closes_at": db.now_iso(), "close_days_remaining": 0, "review_status": "unreviewed"}
+            path = reports.write_daily_report(result, [job], report_dir)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("Daily Review Digest", text)
+            self.assertIn("GIS Analyst", text)
+            self.assertIn("Closing in 0 days", text)
+
+    def test_latest_report_endpoint_empty_state(self):
+        with patch("backend.app.api.latest_daily_report", return_value={"exists": False, "date": "", "text": "No daily review report has been generated yet.", "summary": {}}):
+            row = latest_report_endpoint()
+        self.assertFalse(row["exists"])
+        self.assertIn("No daily review report", row["text"])
+
+    def test_latest_report_endpoint_returns_report(self):
+        with patch("backend.app.api.latest_daily_report", return_value={"exists": True, "date": "2026-06-27", "text": "# Report", "summary": {"new_jobs_inserted": 2}}):
+            row = latest_report_endpoint()
+        self.assertTrue(row["exists"])
+        self.assertEqual(row["summary"]["new_jobs_inserted"], 2)
+
+    def test_report_does_not_contain_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secret = "redacted-value"
+            with patch.dict(os.environ, {"USAJOBS_AUTHORIZATION_KEY": secret}, clear=False):
+                path = reports.write_daily_report({"errors": {"USAJobs": f"failed {secret}"}}, [], Path(tmp))
+                self.assertNotIn(secret, path.read_text(encoding="utf-8"))
+
+    def test_top_recommended_jobs_sort_by_closing_match_and_freshness(self):
+        rows = [
+            {**self.job, "title": "High Match", "match_score": 95, "posting_age_days": 1, "review_status": "unreviewed"},
+            {**self.job, "title": "Closing Soon", "match_score": 60, "posting_age_days": 8, "close_days_remaining": 1, "review_status": "unreviewed"},
+            {**self.job, "title": "Fresh Medium", "match_score": 70, "posting_age_days": 0, "review_status": "unreviewed"},
+        ]
+        ordered = reports.top_recommended_jobs(rows)
+        self.assertEqual([job["title"] for job in ordered], ["Closing Soon", "High Match", "Fresh Medium"])
+
+    def test_runtime_reports_and_logs_are_ignored(self):
+        patterns = Path(".gitignore").read_text(encoding="utf-8")
+        self.assertIn("runtime/", patterns)
+        self.assertIn("runtime/**", patterns)
+
+    def test_refresh_creates_report_when_folder_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            report_dir = Path(tmp) / "missing" / "reports"
+            jobs_path = Path(tmp) / "jobs.json"
+            jobs_path.write_text(json.dumps([{**self.job, "source_url": "https://example.com/report-refresh", "date_posted": db.now_iso()}]), encoding="utf-8")
+            result = collectors.refresh_jobs(path, sources_override=[{"name": "Temp Report Jobs", "type": "manual", "url": str(jobs_path), "enabled": True, "notes": ""}], report_dir=report_dir)
+            self.assertTrue(Path(result["daily_report_path"]).exists())
 
     def test_freshness_score_boost_and_penalty(self):
         fresh = score_job(apply_freshness({**self.job, "date_posted": db.now_iso()}), self.profile)

@@ -18,6 +18,8 @@ out/
 !backend/.env.example
 .vercel
 coverage/
+runtime/
+runtime/**
 generated/application_packets/
 generated/application_packets/**
 !generated/application_packets/

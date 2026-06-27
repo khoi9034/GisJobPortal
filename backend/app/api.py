@@ -20,6 +20,7 @@ from .documents import (
 from .materials import generate_materials
 from .paths import api_env, cors_origins
 from .profile import load_profile
+from .reports import latest_report as latest_daily_report
 from .scoring import score_job
 from .source_validation import validate_sources
 from .sources import load_sources, save_source
@@ -112,6 +113,11 @@ def refresh() -> dict[str, Any]:
 def review_queue(include_stale: bool = False) -> dict[str, list[dict[str, Any]]]:
     ensure_seeded()
     return db.review_queue(include_stale=include_stale)
+
+
+@app.get("/reports/latest")
+def latest_report() -> dict[str, Any]:
+    return latest_daily_report()
 
 
 @app.post("/jobs/{job_id}/score")

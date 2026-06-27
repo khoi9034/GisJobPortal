@@ -12,6 +12,7 @@ from . import db
 from .freshness import apply_freshness
 from .paths import ROOT, SAMPLE_JOBS_PATH, load_backend_env
 from .profile import load_profile
+from .reports import write_daily_report
 from .scoring import score_job
 from .sources import load_sources
 
@@ -234,7 +235,11 @@ def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def refresh_jobs(
+    db_path: Path | str = db.DB_PATH,
+    sources_override: list[dict[str, Any]] | None = None,
+    report_dir: Path | None = None,
+) -> dict[str, Any]:
     profile = load_profile()
     sources = sources_override or load_sources()
     db.init_db(db_path)
@@ -292,7 +297,7 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
         "medium_matches": sum(1 for item in active_jobs if 50 <= item["match_score"] < 75),
         "low_matches": sum(1 for item in active_jobs if item["match_score"] < 50),
     }
-    return {
+    result = {
         "sources_checked": sources_checked,
         "sources_skipped": sources_skipped,
         "jobs_collected": jobs_collected,
@@ -308,3 +313,6 @@ def refresh_jobs(db_path: Path | str = db.DB_PATH, sources_override: list[dict[s
         **counts,
         **bands,
     }
+    report_path = write_daily_report(result, active_jobs, report_dir) if report_dir else write_daily_report(result, active_jobs)
+    result["daily_report_path"] = str(report_path)
+    return result

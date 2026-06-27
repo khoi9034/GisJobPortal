@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, AiStatus, ApplicationPacket, Job, Source, Stats } from "../lib/api";
+import { api, AiStatus, ApplicationPacket, DailyReport, Job, Source, Stats } from "../lib/api";
 
 type View = "overview" | "review" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 type FreshnessFilter = "active" | "fresh" | "last30" | "include_stale" | "closing" | "unknown";
@@ -164,6 +164,7 @@ export default function DashboardPage({ view }: { view: View }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
+  const [report, setReport] = useState<DailyReport | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [freshness, setFreshness] = useState<FreshnessFilter>("active");
@@ -171,16 +172,18 @@ export default function DashboardPage({ view }: { view: View }) {
   const [message, setMessage] = useState("");
 
   async function load() {
-    const [jobRows, overview, sourceRows, profileRow, aiRow] = await Promise.all([
+    const [jobRows, overview, sourceRows, reportRow, profileRow, aiRow] = await Promise.all([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
       api<Source[]>("/sources"),
+      api<DailyReport>("/reports/latest"),
       api<any>("/profile"),
       api<AiStatus>("/ai/status"),
     ]);
     setJobs(jobRows);
     setStats(overview);
     setSources(sourceRows);
+    setReport(reportRow);
     setProfile(profileRow);
     setAiStatus(aiRow);
   }
@@ -306,6 +309,7 @@ export default function DashboardPage({ view }: { view: View }) {
     return (
       <Shell view={view}>
         <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+        <DailyDigest report={report} />
         <ReviewFilterBar filters={reviewFilters} setFilters={setReviewFilters} />
         <ReviewGroup title="New Today" jobs={reviewFilterRows(reviewQueue.new_today, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
         <ReviewGroup title="Fresh High Match" jobs={reviewFilterRows(reviewQueue.fresh_high_match, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
@@ -319,6 +323,7 @@ export default function DashboardPage({ view }: { view: View }) {
   return (
     <Shell view={view}>
       <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+      {view === "overview" && <DailyDigest report={report} />}
       {stats && (
         <div className="stats">
           <div className="stat"><strong>{stats.total}</strong><span>Total jobs</span></div>
@@ -368,6 +373,31 @@ function ActivationChecklist({ source }: { source: Source }) {
       <br />
       Next action: {nextSourceAction(source)}
     </div>
+  );
+}
+
+function reportTimestamp(report: DailyReport | null) {
+  return report?.text.match(/Refresh timestamp: (.+)/)?.[1] || report?.date || "not generated";
+}
+
+function DailyDigest({ report }: { report: DailyReport | null }) {
+  const summary = report?.summary || {};
+  return (
+    <section className="settings-section">
+      <h3>Latest Daily Digest</h3>
+      <p className="muted">Last refresh: {reportTimestamp(report)}</p>
+      <div className="stats">
+        <div className="stat"><strong>{summary.new_jobs_inserted ?? 0}</strong><span>New jobs</span></div>
+        <div className="stat"><strong>{summary.high_match_unreviewed_jobs ?? 0}</strong><span>High match unreviewed</span></div>
+        <div className="stat"><strong>{summary.closing_soon_jobs ?? 0}</strong><span>Closing soon</span></div>
+        <div className="stat"><strong>{summary.packet_ready_jobs ?? summary.packets_ready ?? 0}</strong><span>Packet ready</span></div>
+        <div className="stat"><strong>{summary.source_errors ?? 0}</strong><span>Source errors</span></div>
+      </div>
+      <details>
+        <summary className="button">View Latest Report</summary>
+        <pre>{report?.text || "No daily review report has been generated yet."}</pre>
+      </details>
+    </section>
   );
 }
 

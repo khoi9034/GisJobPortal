@@ -97,6 +97,8 @@ freshness:
 8. Submit manually outside the app.
 9. Mark Applied and schedule follow-up.
 
+For daily local automation, see `docs/DAILY_AUTOMATION_SETUP.md`.
+
 ## Add Job Sources
 
 Edit `config/sources.yaml` or use `POST /sources`.

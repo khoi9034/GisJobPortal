@@ -121,6 +121,14 @@ export type ReviewQueue = {
   applied_follow_up: Job[];
 };
 
+export type DailyReport = {
+  exists: boolean;
+  date: string;
+  path?: string;
+  text: string;
+  summary: Record<string, number>;
+};
+
 const demoJobs: Job[] = [
   {
     id: 1,
@@ -278,12 +286,28 @@ function demoReviewQueue(): ReviewQueue {
   };
 }
 
+function demoReport(): DailyReport {
+  return {
+    exists: true,
+    date: "demo",
+    text: "# Daily Review Digest - demo\n\nDemo mode uses bundled sample jobs.",
+    summary: {
+      new_jobs_inserted: 2,
+      high_match_unreviewed_jobs: 1,
+      closing_soon_jobs: 1,
+      packet_ready_jobs: 0,
+      source_errors: 0,
+    },
+  };
+}
+
 function demoApi<T>(path: string, init?: RequestInit): T {
   const method = init?.method || "GET";
   const jobMatch = path.match(/^\/jobs\/(\d+)/);
   const job = jobMatch ? demoJobs.find((row) => row.id === Number(jobMatch[1])) || demoJobs[0] : demoJobs[0];
   if (path === "/jobs") return demoJobs as T;
   if (path.startsWith("/review/queue")) return demoReviewQueue() as T;
+  if (path === "/reports/latest") return demoReport() as T;
   if (path === "/stats/overview") return demoStats() as T;
   if (path === "/sources") {
     return [
