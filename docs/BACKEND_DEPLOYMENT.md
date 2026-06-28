@@ -3,7 +3,7 @@
 Local run:
 
 ```powershell
-.\.venv\Scripts\python -m uvicorn backend.app.api:app --reload --port 8000
+.\.venv\Scripts\python -m uvicorn backend.app.api:app --reload --port 8001
 ```
 
 Local env file:
@@ -19,7 +19,7 @@ CORS_ORIGINS=http://localhost:3000,https://gis-job-portal.vercel.app
 Health check:
 
 ```powershell
-Invoke-RestMethod http://localhost:8000/health
+Invoke-RestMethod http://127.0.0.1:8001/health
 ```
 
 When the backend is hosted later, set Vercel frontend env:
@@ -30,4 +30,3 @@ NEXT_PUBLIC_API_BASE_URL=https://your-hosted-backend.example.com
 ```
 
 Privacy warning: do not deploy private resume/transcript PDFs, extracted documents, `.env` files, or generated application packets. Keep `private/` and `generated/application_packets/` local unless a reviewed storage plan exists.
-

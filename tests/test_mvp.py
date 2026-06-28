@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import analyze_job_matches, check_frontend_data_mode, discover_sources, export_application_packet, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import analyze_job_matches, check_frontend_data_mode, check_ports, discover_sources, export_application_packet, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -366,13 +366,36 @@ class MvpTests(unittest.TestCase):
     def test_check_frontend_data_mode_does_not_expose_secrets(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
             env_path = Path(tmp) / ".env.local"
-            env_path.write_text("NEXT_PUBLIC_API_MODE=demo\nNEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000\n", encoding="utf-8")
+            env_path.write_text("NEXT_PUBLIC_API_MODE=demo\nNEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001\n", encoding="utf-8")
             output = io.StringIO()
             with patch("scripts.check_frontend_data_mode.fetch_json", side_effect=[{"status": "ok", "database": "connected"}, [{"source": "USAJobs API"}, {"source": "Woolpert Careers"}]]), redirect_stdout(output):
                 self.assertEqual(check_frontend_data_mode.main(env_path), 0)
         text = output.getvalue()
         self.assertIn("warning: frontend is in demo mode while the backend has real jobs.", text)
         self.assertNotIn("do-not-print-me", text)
+
+    def test_check_ports_runs_without_secrets(self):
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_ports.is_open", return_value=True), patch("scripts.check_ports.http_get", return_value=(True, "HTTP 200")), patch("scripts.check_ports.health", return_value=(False, "/health HTTP 404")), redirect_stdout(output):
+            self.assertEqual(check_ports.main(), 0)
+        text = output.getvalue()
+        self.assertIn("preferred backend port: 8001", text)
+        self.assertIn("warning: port 8000 is occupied", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_frontend_env_local_remains_ignored(self):
+        patterns = Path(".gitignore").read_text(encoding="utf-8")
+        self.assertIn("frontend/.env.local", patterns)
+
+    def test_readme_documents_8001_local_backend_mode(self):
+        text = Path("README.md").read_text(encoding="utf-8")
+        self.assertIn("Local Real Data Mode", text)
+        self.assertIn("NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001", text)
+
+    def test_launcher_script_does_not_contain_secrets(self):
+        text = Path("scripts/start_local_dev.ps1").read_text(encoding="utf-8")
+        self.assertIn("NEXT_PUBLIC_API_MODE=local", text)
+        self.assertNotRegex(text, r"vcp_|USAJOBS_AUTHORIZATION_KEY=|OPENROUTER_API_KEY=")
 
     def test_validate_target_sources_skips_disabled_sources(self):
         enabled = {"name": "Enabled Manual", "type": "manual", "url": "data/sample_jobs.json", "enabled": True}

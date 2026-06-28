@@ -23,10 +23,10 @@ npm install
 ## Run Backend
 
 ```powershell
-.\.venv\Scripts\python -m uvicorn backend.app.api:app --reload --port 8000
+.\.venv\Scripts\python -m uvicorn backend.app.api:app --reload --port 8001
 ```
 
-API docs: `http://localhost:8000/docs`
+API docs: `http://127.0.0.1:8001/docs`
 
 ## Run Frontend
 
@@ -34,7 +34,7 @@ For real local backend data, create `frontend/.env.local`:
 
 ```text
 NEXT_PUBLIC_API_MODE=local
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001
 ```
 
 Do not commit `frontend/.env.local`. Restart `npm run dev` after changing `NEXT_PUBLIC_*` values.
@@ -46,12 +46,36 @@ npm run dev
 
 Dashboard: `http://localhost:3000`
 
+## Local Real Data Mode
+
+The Vercel site shows demo jobs until the backend is hosted. Local real data uses the FastAPI backend on port `8001`.
+
+Start both local servers with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_local_dev.ps1
+```
+
+That script creates ignored `frontend/.env.local` if needed:
+
+```text
+NEXT_PUBLIC_API_MODE=local
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001
+```
+
+Restart `npm run dev` after changing `NEXT_PUBLIC_*` values. If demo data appears, run:
+
+```powershell
+python scripts\check_ports.py
+python scripts\check_frontend_data_mode.py
+```
+
 ## Why am I seeing demo jobs?
 
 The Vercel site uses `NEXT_PUBLIC_API_MODE=demo` until the backend is hosted with durable storage. Local real data requires:
 
-1. Start FastAPI at `http://127.0.0.1:8000`.
-2. Set `frontend/.env.local` to `NEXT_PUBLIC_API_MODE=local` and `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`.
+1. Start FastAPI at `http://127.0.0.1:8001`.
+2. Set `frontend/.env.local` to `NEXT_PUBLIC_API_MODE=local` and `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001`.
 3. Restart the frontend dev server.
 4. Open `http://localhost:3000`, not the Vercel URL.
 
@@ -70,7 +94,7 @@ Safe frontend environment variables:
 ```text
 NEXT_PUBLIC_APP_NAME=GIS Apply Copilot
 NEXT_PUBLIC_API_MODE=demo
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001
 ```
 
 Use `NEXT_PUBLIC_API_MODE=demo` until a hosted backend with durable storage is ready. The FastAPI + SQLite backend is local-only for now because Vercel serverless storage is not persistent.
@@ -273,7 +297,7 @@ Discovery writes `docs/SOURCE_DISCOVERY_REPORT.md` and `docs/SOURCE_ACTIVATION_S
 Put your resume PDF in `private/resume/`, then run:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:8000/documents/resume/extract
+Invoke-RestMethod -Method Post http://127.0.0.1:8001/documents/resume/extract
 ```
 
 This creates `private/resume/resume_extracted.md` for local review and manual editing.
@@ -281,7 +305,7 @@ This creates `private/resume/resume_extracted.md` for local review and manual ed
 Put your transcript PDF in `private/transcript/` only when needed, then run:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:8000/documents/transcript/extract
+Invoke-RestMethod -Method Post http://127.0.0.1:8001/documents/transcript/extract
 ```
 
 This creates `private/transcript/transcript_summary.md`. The transcript summary is used only for internships, government/entry-level roles asking for transcript/coursework/GPA/degree proof, or jobs where academic GIS coursework is useful.
@@ -308,7 +332,7 @@ Do not commit `backend/.env`. If `OPENROUTER_API_KEY` is missing or still a plac
 Check mode:
 
 ```powershell
-Invoke-RestMethod http://localhost:8000/ai/status
+Invoke-RestMethod http://127.0.0.1:8001/ai/status
 ```
 
 Only sanitized profile/config text, sanitized resume summary text, job details, scoring, missing skills, and the portfolio link are sent to the AI provider. Raw PDFs, transcripts, `.env` files, private folder paths, tokens, and generated packet history are not sent.

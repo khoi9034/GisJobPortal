@@ -9,7 +9,7 @@ from urllib import error, request
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_ENV_LOCAL = ROOT / "frontend" / ".env.local"
-DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
+DEFAULT_BACKEND_URL = "http://127.0.0.1:8001"
 SECRET_WORDS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION")
 
 
@@ -51,7 +51,7 @@ def main(env_path: Path = FRONTEND_ENV_LOCAL) -> int:
     check_base = env["base_url"] or DEFAULT_BACKEND_URL
     print(f"frontend env file: {env_path if env_path.exists() else 'not found'}")
     print(f"frontend API mode: {redact(env['mode'])}")
-    print(f"frontend API base URL: {redact(env['base_url'] or '(missing; checking http://127.0.0.1:8000)')}")
+    print(f"frontend API base URL: {redact(env['base_url'] or '(missing; checking http://127.0.0.1:8001)')}")
     if env["mode"] == "local" and not env["base_url"]:
         print("warning: Local API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.")
     try:
