@@ -4,16 +4,17 @@ import io
 import os
 import json
 from pathlib import Path
+from datetime import date, timedelta
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import analyze_job_matches, discover_sources, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import analyze_job_matches, discover_sources, export_application_packet, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import ai_status_endpoint, health, latest_report as latest_report_endpoint, sources as sources_endpoint, validate_source_config
+from backend.app.api import ai_status_endpoint, application_board as application_board_endpoint, health, latest_report as latest_report_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -120,6 +121,61 @@ class MvpTests(unittest.TestCase):
             for status in ["materials_generated", "ready_to_apply", "applied"]:
                 updated = db.update_job_fields(job_id, {"status": status}, path)
                 self.assertEqual(updated["status"], status)
+
+    def test_mark_started_sets_application_started_at(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job(self.job, path)
+            updated = db.mark_application_started(job_id, path)
+        self.assertEqual(updated["application_started_at"], db.now_iso())
+        self.assertEqual(updated["application_url_opened_at"], db.now_iso())
+        self.assertEqual(updated["outcome_status"], "ready_to_apply")
+
+    def test_mark_applied_sets_applied_at_and_outcome_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job(self.job, path)
+            updated = db.mark_applied(job_id, path)
+        self.assertEqual(updated["status"], "applied")
+        self.assertEqual(updated["outcome_status"], "applied")
+        self.assertEqual(updated["applied_at"], db.now_iso())
+
+    def test_follow_up_due_default_logic(self):
+        today = date.fromisoformat(db.now_iso())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            private_id, _ = db.insert_job({**self.job, "company": "Woolpert", "source": "Woolpert Careers", "source_url": "https://example.com/private"}, path)
+            gov_id, _ = db.insert_job({**self.job, "source": "USAJobs API", "source_url": "https://example.com/gov"}, path)
+            closed_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/closed-follow", "source_closes_at": db.now_iso()}, path)
+            private_job = db.mark_applied(private_id, path)
+            gov_job = db.mark_applied(gov_id, path)
+            closed_job = db.mark_applied(closed_id, path)
+        self.assertEqual(private_job["follow_up_due_at"], (today + timedelta(days=7)).isoformat())
+        self.assertEqual(gov_job["follow_up_due_at"], (today + timedelta(days=10)).isoformat())
+        self.assertEqual(closed_job["follow_up_due_at"], "")
+
+    def test_follow_up_sent_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job(self.job, path)
+            db.mark_applied(job_id, path)
+            updated = db.mark_follow_up_sent(job_id, path)
+        self.assertEqual(updated["follow_up_sent_at"], db.now_iso())
+        self.assertEqual(updated["status"], "applied")
+
+    def test_application_updates_do_not_erase_review_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job(self.job, path)
+            db.update_job_review(job_id, {"review_status": "interested"}, path)
+            updated = db.mark_applied(job_id, path)
+        self.assertEqual(updated["review_status"], "interested")
+
+    def test_application_board_endpoint_shape(self):
+        with patch("backend.app.api.ensure_seeded"), patch("backend.app.api.db.application_board", return_value={"ready_to_apply": [], "started": [], "applied": [], "follow_up_due": [], "interview": [], "rejected_closed": []}):
+            row = application_board_endpoint()
+        self.assertIn("ready_to_apply", row)
+        self.assertIn("follow_up_due", row)
 
     def test_source_loading(self):
         sources = load_sources()
@@ -508,6 +564,39 @@ class MvpTests(unittest.TestCase):
         self.assertIn("runtime/", patterns)
         self.assertIn("runtime/**", patterns)
 
+    def test_runtime_exports_are_ignored(self):
+        patterns = Path(".gitignore").read_text(encoding="utf-8")
+        self.assertIn("runtime/", patterns)
+
+    def test_export_application_packet_refuses_missing_packet_clearly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job(self.job, path)
+            with self.assertRaises(FileNotFoundError) as raised:
+                export_application_packet.export_packet(job_id, path, Path(tmp) / "exports")
+        self.assertIn("Generate the application packet first", str(raised.exception))
+
+    def test_export_application_packet_excludes_secrets_and_private_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "jobs.sqlite3"
+            packet_dir = root / "packet"
+            packet_dir.mkdir()
+            secret = "do-not-export-me"
+            packet_dir.joinpath("cover_letter.md").write_text(
+                rf"Hello {secret} C:\Dev\GisJobPortal\private\resume\resume_extracted.md",
+                encoding="utf-8",
+            )
+            job_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/export"}, db_path)
+            db.update_job_fields(job_id, {"application_packet_dir": str(packet_dir), "document_checklist": {"transcript_required": False}}, db_path)
+            with patch.dict(os.environ, {"FAKE_SECRET_KEY": secret}, clear=False):
+                exported = export_application_packet.export_packet(job_id, db_path, root / "exports")
+            combined = "\n".join(path.read_text(encoding="utf-8") for path in exported.glob("*.md"))
+            names = {path.name for path in exported.glob("*.md")}
+            self.assertIn("submission_checklist.md", names)
+            self.assertNotIn(secret, combined)
+            self.assertNotIn(r"C:\Dev\GisJobPortal\private", combined)
+
     def test_refresh_creates_report_when_folder_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
@@ -559,6 +648,8 @@ class MvpTests(unittest.TestCase):
             job = db.get_job(job_id, path)
         for field in ["source_posted_at", "first_seen_at", "last_seen_at", "posting_age_days", "freshness_bucket", "freshness_confidence"]:
             self.assertIn(field, job)
+        self.assertEqual(job["outcome_status"], "not_started")
+        self.assertEqual(job["application_started_at"], "")
 
     def test_sample_jobs_still_collect(self):
         with tempfile.TemporaryDirectory() as tmp:

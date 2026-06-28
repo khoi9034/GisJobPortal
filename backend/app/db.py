@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,8 @@ VALID_STATUSES = {
 
 VALID_REVIEW_STATUSES = {"unreviewed", "interested", "not_interested", "maybe", "applied", "archived"}
 VALID_PRIORITY_BUCKETS = {"urgent", "high", "medium", "low"}
+VALID_APPLICATION_METHODS = {"", "employer_portal", "email", "referral", "recruiter", "other"}
+VALID_OUTCOME_STATUSES = {"not_started", "ready_to_apply", "applied", "follow_up_due", "interview", "rejected", "closed", "withdrawn"}
 
 JSON_FIELDS = {
     "scoring_breakdown",
@@ -87,6 +89,17 @@ JOB_COLUMNS = [
     "packet_generated_at",
     "is_stale",
     "is_closed_or_missing",
+    "application_url_opened_at",
+    "application_started_at",
+    "applied_at",
+    "follow_up_due_at",
+    "follow_up_sent_at",
+    "application_method",
+    "application_contact_name",
+    "application_contact_email",
+    "application_confirmation_number",
+    "application_submission_notes",
+    "outcome_status",
 ]
 
 
@@ -166,7 +179,18 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 needs_packet INTEGER NOT NULL DEFAULT 1,
                 packet_generated_at TEXT DEFAULT '',
                 is_stale INTEGER NOT NULL DEFAULT 0,
-                is_closed_or_missing INTEGER NOT NULL DEFAULT 0
+                is_closed_or_missing INTEGER NOT NULL DEFAULT 0,
+                application_url_opened_at TEXT DEFAULT '',
+                application_started_at TEXT DEFAULT '',
+                applied_at TEXT DEFAULT '',
+                follow_up_due_at TEXT DEFAULT '',
+                follow_up_sent_at TEXT DEFAULT '',
+                application_method TEXT DEFAULT '',
+                application_contact_name TEXT DEFAULT '',
+                application_contact_email TEXT DEFAULT '',
+                application_confirmation_number TEXT DEFAULT '',
+                application_submission_notes TEXT DEFAULT '',
+                outcome_status TEXT NOT NULL DEFAULT 'not_started'
             );
 
             CREATE UNIQUE INDEX IF NOT EXISTS ux_jobs_duplicate
@@ -257,6 +281,17 @@ def ensure_job_columns(conn: sqlite3.Connection) -> None:
         "penalty_matches": "TEXT DEFAULT '[]'",
         "score_reason": "TEXT DEFAULT ''",
         "score_band": "TEXT DEFAULT ''",
+        "application_url_opened_at": "TEXT DEFAULT ''",
+        "application_started_at": "TEXT DEFAULT ''",
+        "applied_at": "TEXT DEFAULT ''",
+        "follow_up_due_at": "TEXT DEFAULT ''",
+        "follow_up_sent_at": "TEXT DEFAULT ''",
+        "application_method": "TEXT DEFAULT ''",
+        "application_contact_name": "TEXT DEFAULT ''",
+        "application_contact_email": "TEXT DEFAULT ''",
+        "application_confirmation_number": "TEXT DEFAULT ''",
+        "application_submission_notes": "TEXT DEFAULT ''",
+        "outcome_status": "TEXT NOT NULL DEFAULT 'not_started'",
     }
     for column, ddl in additions.items():
         if column not in existing:
@@ -447,6 +482,20 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     values["match_score"] = int(values.get("match_score") or 0)
     values["review_status"] = values.get("review_status") or "unreviewed"
     values["priority_bucket"] = values.get("priority_bucket") or priority_for_job(values)
+    values["outcome_status"] = values.get("outcome_status") or "not_started"
+    for field in (
+        "application_url_opened_at",
+        "application_started_at",
+        "applied_at",
+        "follow_up_due_at",
+        "follow_up_sent_at",
+        "application_method",
+        "application_contact_name",
+        "application_contact_email",
+        "application_confirmation_number",
+        "application_submission_notes",
+    ):
+        values[field] = values.get(field) or ""
     values["needs_packet"] = int(bool(values.get("needs_packet", True)))
     values["is_stale"] = int(bool(values.get("is_stale")))
     values["is_closed_or_missing"] = int(bool(values.get("is_closed_or_missing")))
@@ -492,6 +541,17 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
                     "priority_bucket",
                     "needs_packet",
                     "packet_generated_at",
+                    "application_url_opened_at",
+                    "application_started_at",
+                    "applied_at",
+                    "follow_up_due_at",
+                    "follow_up_sent_at",
+                    "application_method",
+                    "application_contact_name",
+                    "application_contact_email",
+                    "application_confirmation_number",
+                    "application_submission_notes",
+                    "outcome_status",
                 }
             ]
             conn.execute(
@@ -574,6 +634,10 @@ def update_job_fields(job_id: int, fields: dict[str, Any], path: Path | str = DB
         raise ValueError(f"Invalid review status: {fields['review_status']}")
     if "priority_bucket" in fields and fields["priority_bucket"] not in VALID_PRIORITY_BUCKETS:
         raise ValueError(f"Invalid priority bucket: {fields['priority_bucket']}")
+    if "application_method" in fields and fields["application_method"] not in VALID_APPLICATION_METHODS:
+        raise ValueError(f"Invalid application method: {fields['application_method']}")
+    if "outcome_status" in fields and fields["outcome_status"] not in VALID_OUTCOME_STATUSES:
+        raise ValueError(f"Invalid outcome status: {fields['outcome_status']}")
 
     values = dict(fields)
     for field in JSON_FIELDS & set(values):
@@ -626,11 +690,13 @@ def review_queue(path: Path | str = DB_PATH, include_stale: bool = False) -> dic
 
 def review_counts(path: Path | str = DB_PATH) -> dict[str, int]:
     queue = review_queue(path)
+    board = application_board(path)
     return {
         "unreviewed_jobs": len(queue["needs_review"]),
         "high_match_unreviewed_jobs": len(queue["fresh_high_match"]),
         "packets_ready": len(queue["packet_ready"]),
-        "applied_followups_needed": len(queue["applied_follow_up"]),
+        "applied_followups_needed": len(board["follow_up_due"]),
+        "follow_up_due_jobs": len(board["follow_up_due"]),
     }
 
 
@@ -643,6 +709,82 @@ def update_job_review(job_id: int, fields: dict[str, Any], path: Path | str = DB
     if "review_status" in updates:
         updates["reviewed_at"] = "" if updates["review_status"] == "unreviewed" else now_iso()
     return update_job_fields(job_id, updates, path)
+
+
+def is_government_job(job: dict[str, Any]) -> bool:
+    text = " ".join(str(job.get(key, "")) for key in ("source", "company", "title", "description")).lower()
+    return any(word in text for word in ["usajobs", "government", "federal", "state", "county", "city of", "department", "agency", "naval"])
+
+
+def default_follow_up_due(job: dict[str, Any], applied_at: str) -> str:
+    applied = parse_date(applied_at) or today_utc()
+    due = applied + timedelta(days=10 if is_government_job(job) else 7)
+    closes = parse_date(job.get("source_closes_at"))
+    return "" if closes and due > closes else due.isoformat()
+
+
+def update_job_application(job_id: int, fields: dict[str, Any], path: Path | str = DB_PATH) -> dict[str, Any]:
+    allowed = {
+        "application_url_opened_at",
+        "application_started_at",
+        "applied_at",
+        "follow_up_due_at",
+        "follow_up_sent_at",
+        "application_method",
+        "application_contact_name",
+        "application_contact_email",
+        "application_confirmation_number",
+        "application_submission_notes",
+        "outcome_status",
+    }
+    bad = set(fields) - allowed
+    if bad:
+        raise ValueError(f"Unsupported application fields: {', '.join(sorted(bad))}")
+    updates = {key: value for key, value in fields.items() if value is not None}
+    return update_job_fields(job_id, updates, path)
+
+
+def mark_application_started(job_id: int, path: Path | str = DB_PATH) -> dict[str, Any]:
+    today = now_iso()
+    return update_job_application(job_id, {"application_started_at": today, "application_url_opened_at": today, "outcome_status": "ready_to_apply"}, path)
+
+
+def mark_applied(job_id: int, path: Path | str = DB_PATH) -> dict[str, Any]:
+    job = get_job(job_id, path)
+    if not job:
+        raise LookupError(f"Job {job_id} not found")
+    today = now_iso()
+    updates = {
+        "applied_at": today,
+        "status": "applied",
+        "outcome_status": "applied",
+        "follow_up_due_at": job.get("follow_up_due_at") or default_follow_up_due(job, today),
+    }
+    if not job.get("application_started_at"):
+        updates["application_started_at"] = today
+    return update_job_fields(job_id, updates, path)
+
+
+def mark_follow_up_sent(job_id: int, path: Path | str = DB_PATH) -> dict[str, Any]:
+    return update_job_fields(job_id, {"follow_up_sent_at": now_iso(), "status": "applied", "outcome_status": "applied"}, path)
+
+
+def follow_up_due(job: dict[str, Any]) -> bool:
+    due = parse_date(job.get("follow_up_due_at"))
+    return bool(due and due <= today_utc() and not job.get("follow_up_sent_at") and job.get("outcome_status") not in {"rejected", "closed", "withdrawn"})
+
+
+def application_board(path: Path | str = DB_PATH) -> dict[str, list[dict[str, Any]]]:
+    rows = list_jobs(path=path)
+    active = [job for job in rows if not job.get("is_closed_or_missing")]
+    return {
+        "ready_to_apply": [job for job in active if (job.get("status") == "ready_to_apply" or job.get("outcome_status") == "ready_to_apply") and not job.get("application_started_at") and not job.get("applied_at")],
+        "started": [job for job in active if job.get("application_started_at") and not job.get("applied_at")],
+        "follow_up_due": [job for job in active if follow_up_due(job) or job.get("outcome_status") == "follow_up_due" or job.get("status") == "follow_up_needed"],
+        "applied": [job for job in active if (job.get("applied_at") or job.get("status") == "applied" or job.get("outcome_status") == "applied") and not follow_up_due(job)],
+        "interview": [job for job in rows if job.get("status") == "interview" or job.get("outcome_status") == "interview"],
+        "rejected_closed": [job for job in rows if job.get("status") == "rejected" or job.get("outcome_status") in {"rejected", "closed", "withdrawn"} or job.get("is_closed_or_missing")],
+    }
 
 
 def save_materials(job_id: int, materials: dict[str, Any], path: Path | str = DB_PATH) -> dict[str, Any]:

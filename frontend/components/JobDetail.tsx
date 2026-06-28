@@ -46,6 +46,41 @@ export default function JobDetail({ id }: { id: string }) {
     await load();
   }
 
+  async function updateApplication(fields: Partial<Job>) {
+    await api<Job>(`/jobs/${id}/application`, { method: "PATCH", body: JSON.stringify(fields) });
+    await load();
+  }
+
+  async function markStarted() {
+    await api<Job>(`/jobs/${id}/mark-application-started`, { method: "POST" });
+    await load();
+  }
+
+  async function markApplied() {
+    await api<Job>(`/jobs/${id}/mark-applied`, { method: "POST" });
+    await load();
+  }
+
+  async function markFollowUpSent() {
+    await api<Job>(`/jobs/${id}/mark-follow-up-sent`, { method: "POST" });
+    await load();
+  }
+
+  async function openApply() {
+    window.open(job?.apply_url, "_blank", "noopener,noreferrer");
+    await updateApplication({ application_url_opened_at: new Date().toISOString().slice(0, 10) });
+  }
+
+  async function setFollowUpDate() {
+    const value = window.prompt("Follow-up due date (YYYY-MM-DD)", job?.follow_up_due_at || "");
+    if (value !== null) await updateApplication({ follow_up_due_at: value, outcome_status: value ? "follow_up_due" : job?.outcome_status });
+  }
+
+  async function addSubmissionNotes() {
+    const value = window.prompt("Submission notes", job?.application_submission_notes || "");
+    if (value !== null) await updateApplication({ application_submission_notes: value });
+  }
+
   async function saveNotes() {
     await api<Job>(`/jobs/${id}/notes`, { method: "PATCH", body: JSON.stringify({ notes }) });
     setMessage("Notes saved.");
@@ -122,12 +157,16 @@ export default function JobDetail({ id }: { id: string }) {
         <button className="button" onClick={() => updateStatus("saved")}>Save</button>
         <button className="button" onClick={() => updateStatus("skipped")}>Skip</button>
         <button className="button" onClick={() => updateStatus("ready_to_apply")}>Mark Ready to Apply</button>
-        <button className="button" onClick={() => updateStatus("applied")}>Mark Applied</button>
+        <button className="button" onClick={markStarted}>Mark Started</button>
+        <button className="button" onClick={markApplied}>Mark Applied</button>
         <button className="button" onClick={() => updateStatus("follow_up_needed")}>Mark Follow-Up Needed</button>
+        <button className="button" onClick={setFollowUpDate}>Set Follow-Up Date</button>
+        <button className="button" onClick={markFollowUpSent}>Mark Follow-Up Sent</button>
         <button className="button" onClick={score}>Rescore</button>
         <button className="button warning" onClick={generate}>Generate Application Packet</button>
         <button className="button" onClick={viewPacket}>View Application Packet</button>
-        <a className="button primary" href={job.apply_url} target="_blank">Open Apply Link</a>
+        <button className="button" onClick={addSubmissionNotes}>Add Submission Notes</button>
+        <button className="button primary" onClick={openApply}>Open Apply Link</button>
       </div>
       {message && <p className="muted">{message}</p>}
 
@@ -150,6 +189,27 @@ export default function JobDetail({ id }: { id: string }) {
         </section>
 
         <aside className="detail-section">
+          <h3>Application Execution</h3>
+          <p className="muted">Manual apply only. This app never logs in, submits applications, or sends emails.</p>
+          <p><strong>Packet:</strong> {job.application_packet_dir || job.packet_generated_at ? "available" : "not generated"}</p>
+          <p><strong>Export command:</strong></p>
+          <pre>python scripts/export_application_packet.py --job-id {job.id}</pre>
+          <p><strong>Started:</strong> {job.application_started_at || "not started"}</p>
+          <p><strong>Applied:</strong> {job.applied_at || "not applied"}</p>
+          <p><strong>Follow-up due:</strong> {job.follow_up_due_at || "not set"}</p>
+          <p><strong>Follow-up sent:</strong> {job.follow_up_sent_at || "not sent"}</p>
+          <p><strong>Method:</strong> {job.application_method || "not set"}</p>
+          <p><strong>Confirmation:</strong> {job.application_confirmation_number || "not recorded"}</p>
+          <h3>Manual Submission Checklist</h3>
+          <ul>
+            <li>Open apply link</li>
+            <li>Upload resume manually</li>
+            <li>Upload cover letter manually if required</li>
+            <li>Upload transcript manually only if required</li>
+            <li>Paste/check answers</li>
+            <li>Submit manually outside the portal</li>
+            <li>Record confirmation number and mark applied</li>
+          </ul>
           <h3>Document Checklist</h3>
           <Checklist checklist={checklist} setChecklist={setChecklist} />
           <button className="button" onClick={saveChecklist}>Save Checklist</button>

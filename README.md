@@ -99,6 +99,21 @@ freshness:
 
 For daily local automation, see `docs/DAILY_AUTOMATION_SETUP.md`.
 
+## Applying With the Portal
+
+1. Run `python scripts/refresh_jobs.py`.
+2. Open Daily Review.
+3. Pick a high-match job.
+4. Generate the application packet.
+5. Run `python scripts/qa_application_packet.py`.
+6. Export/copy the packet with `python scripts/export_application_packet.py --job-id JOB_ID`.
+7. Open the apply link.
+8. Submit manually outside the portal.
+9. Mark Applied.
+10. Set and track follow-up.
+
+The app never auto-applies, logs into job boards, or sends emails. It only prepares materials, opens links, and tracks what you did manually.
+
 ## Testing a Real Application Packet
 
 ```powershell
@@ -106,7 +121,7 @@ python scripts\refresh_jobs.py
 python scripts\qa_application_packet.py
 ```
 
-Open Daily Review, pick a high-match job, generate the packet, and review every file before applying manually outside the app. The QA command uses the best current active USAJobs job, checks the generated packet for obvious safety/quality issues, and keeps generated packet files local.
+Open Daily Review, pick a high-match job, generate the packet, and review every file before applying manually outside the app. The QA command uses the best current active real-source job, checks the generated packet for obvious safety/quality issues, and keeps generated packet files local.
 
 ## Add Job Sources
 

@@ -49,6 +49,20 @@ class ReviewPatch(BaseModel):
     priority_bucket: str | None = None
 
 
+class ApplicationPatch(BaseModel):
+    application_url_opened_at: str | None = None
+    application_started_at: str | None = None
+    applied_at: str | None = None
+    follow_up_due_at: str | None = None
+    follow_up_sent_at: str | None = None
+    application_method: str | None = None
+    application_contact_name: str | None = None
+    application_contact_email: str | None = None
+    application_confirmation_number: str | None = None
+    application_submission_notes: str | None = None
+    outcome_status: str | None = None
+
+
 class ChecklistPatch(BaseModel):
     checklist: dict[str, Any] | None = None
     resume_required: bool | None = None
@@ -113,6 +127,12 @@ def refresh() -> dict[str, Any]:
 def review_queue(include_stale: bool = False) -> dict[str, list[dict[str, Any]]]:
     ensure_seeded()
     return db.review_queue(include_stale=include_stale)
+
+
+@app.get("/application/board")
+def application_board() -> dict[str, list[dict[str, Any]]]:
+    ensure_seeded()
+    return db.application_board()
 
 
 @app.get("/reports/latest")
@@ -181,6 +201,46 @@ def notes(job_id: int, patch: NotesPatch) -> dict[str, Any]:
 def review(job_id: int, patch: ReviewPatch) -> dict[str, Any]:
     try:
         return db.update_job_review(job_id, patch.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/jobs/{job_id}/application")
+def application(job_id: int, patch: ApplicationPatch) -> dict[str, Any]:
+    try:
+        return db.update_job_application(job_id, patch.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/jobs/{job_id}/mark-application-started")
+def mark_application_started(job_id: int) -> dict[str, Any]:
+    try:
+        return db.mark_application_started(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/jobs/{job_id}/mark-applied")
+def mark_applied(job_id: int) -> dict[str, Any]:
+    try:
+        return db.mark_applied(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/jobs/{job_id}/mark-follow-up-sent")
+def mark_follow_up_sent(job_id: int) -> dict[str, Any]:
+    try:
+        return db.mark_follow_up_sent(job_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LookupError as exc:

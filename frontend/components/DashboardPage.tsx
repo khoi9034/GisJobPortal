@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, AiStatus, ApplicationPacket, DailyReport, Job, Source, Stats } from "../lib/api";
+import { api, AiStatus, ApplicationBoard, ApplicationPacket, DailyReport, Job, Source, Stats } from "../lib/api";
 
-type View = "overview" | "review" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
+type View = "overview" | "review" | "applications" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 type FreshnessFilter = "active" | "fresh" | "last30" | "include_stale" | "closing" | "unknown";
 type ReviewFilters = {
   freshOnly: boolean;
@@ -17,6 +17,7 @@ type ReviewFilters = {
 const nav = [
   ["overview", "/", "Overview"],
   ["review", "/daily-review", "Daily Review"],
+  ["applications", "/applications", "Application Board"],
   ["new", "/new-jobs", "New Jobs"],
   ["best", "/best-matches", "Best Matches"],
   ["saved", "/saved", "Saved Jobs"],
@@ -36,6 +37,7 @@ const titles: Record<View, string> = {
   skipped: "Skipped",
   settings: "Settings/Profile",
   review: "Daily Review",
+  applications: "Application Board",
 };
 
 function Shell({ view, children }: { view: View; children: React.ReactNode }) {
@@ -149,6 +151,10 @@ function buildReviewQueue(jobs: Job[], includeStale: boolean) {
   };
 }
 
+function emptyApplicationBoard(): ApplicationBoard {
+  return { ready_to_apply: [], started: [], applied: [], follow_up_due: [], interview: [], rejected_closed: [] };
+}
+
 function reviewFilterRows(jobs: Job[], filters: ReviewFilters) {
   return jobs.filter((job) => {
     if (filters.freshOnly && !(age(job) !== null && age(job)! <= FRESH_DAYS)) return false;
@@ -187,6 +193,7 @@ export default function DashboardPage({ view }: { view: View }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
+  const [applicationBoard, setApplicationBoard] = useState<ApplicationBoard>(emptyApplicationBoard());
   const [report, setReport] = useState<DailyReport | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
@@ -195,10 +202,11 @@ export default function DashboardPage({ view }: { view: View }) {
   const [message, setMessage] = useState("");
 
   async function load() {
-    const [jobRows, overview, sourceRows, reportRow, profileRow, aiRow] = await Promise.all([
+    const [jobRows, overview, sourceRows, boardRows, reportRow, profileRow, aiRow] = await Promise.all([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
       api<Source[]>("/sources"),
+      api<ApplicationBoard>("/application/board"),
       api<DailyReport>("/reports/latest"),
       api<any>("/profile"),
       api<AiStatus>("/ai/status"),
@@ -206,6 +214,7 @@ export default function DashboardPage({ view }: { view: View }) {
     setJobs(jobRows);
     setStats(overview);
     setSources(sourceRows);
+    setApplicationBoard(boardRows);
     setReport(reportRow);
     setProfile(profileRow);
     setAiStatus(aiRow);
@@ -247,6 +256,44 @@ export default function DashboardPage({ view }: { view: View }) {
       body: JSON.stringify({ review_status }),
     });
     await load();
+  }
+
+  async function patchApplication(job: Job, fields: Partial<Job>) {
+    await api<Job>(`/jobs/${job.id}/application`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    });
+    await load();
+  }
+
+  async function markStarted(job: Job) {
+    await api<Job>(`/jobs/${job.id}/mark-application-started`, { method: "POST" });
+    await load();
+  }
+
+  async function markApplied(job: Job) {
+    await api<Job>(`/jobs/${job.id}/mark-applied`, { method: "POST" });
+    await load();
+  }
+
+  async function markFollowUpSent(job: Job) {
+    await api<Job>(`/jobs/${job.id}/mark-follow-up-sent`, { method: "POST" });
+    await load();
+  }
+
+  async function openApply(job: Job) {
+    window.open(job.apply_url, "_blank", "noopener,noreferrer");
+    await patchApplication(job, { application_url_opened_at: new Date().toISOString().slice(0, 10) });
+  }
+
+  async function setFollowUp(job: Job) {
+    const value = window.prompt("Follow-up due date (YYYY-MM-DD)", job.follow_up_due_at || "");
+    if (value !== null) await patchApplication(job, { follow_up_due_at: value, outcome_status: value ? "follow_up_due" : job.outcome_status });
+  }
+
+  async function addSubmissionNotes(job: Job) {
+    const value = window.prompt("Submission notes", job.application_submission_notes || "");
+    if (value !== null) await patchApplication(job, { application_submission_notes: value });
   }
 
   async function generate(job: Job) {
@@ -350,6 +397,31 @@ export default function DashboardPage({ view }: { view: View }) {
     );
   }
 
+  if (view === "applications") {
+    return (
+      <Shell view={view}>
+        <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+        <section className="settings-section">
+          <h3>Manual Apply Checklist</h3>
+          <p className="muted">This portal prepares and tracks materials only. Submit applications manually outside the app.</p>
+          <ul>
+            <li>Open apply link</li>
+            <li>Upload resume manually</li>
+            <li>Upload cover letter manually if required</li>
+            <li>Upload transcript manually only if required</li>
+            <li>Paste/check answers, submit manually, record confirmation number, then mark applied</li>
+          </ul>
+        </section>
+        <ApplicationGroup title="Ready to Apply" jobs={applicationBoard.ready_to_apply} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
+        <ApplicationGroup title="Started" jobs={applicationBoard.started} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
+        <ApplicationGroup title="Applied" jobs={applicationBoard.applied} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
+        <ApplicationGroup title="Follow-Up Due" jobs={applicationBoard.follow_up_due} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
+        <ApplicationGroup title="Interview" jobs={applicationBoard.interview} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
+        <ApplicationGroup title="Rejected / Closed" jobs={applicationBoard.rejected_closed} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
+      </Shell>
+    );
+  }
+
   return (
     <Shell view={view}>
       <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
@@ -359,7 +431,7 @@ export default function DashboardPage({ view }: { view: View }) {
           <div className="stat"><strong>{stats.total}</strong><span>Total jobs</span></div>
           <div className="stat"><strong>{stats.high_matches}</strong><span>70+ strong fits</span></div>
           <div className="stat"><strong>{stats.medium_matches}</strong><span>55-69 possible</span></div>
-          <div className="stat"><strong>{stats.by_status.follow_up_needed || 0}</strong><span>Need follow-up</span></div>
+        <div className="stat"><strong>{stats.by_status.follow_up_needed || 0}</strong><span>Need follow-up</span></div>
         </div>
       )}
       <div className="toolbar">
@@ -386,6 +458,95 @@ export default function DashboardPage({ view }: { view: View }) {
         {!visibleJobs.length && <p className="muted">No jobs in this view yet.</p>}
       </div>
     </Shell>
+  );
+}
+
+function ApplicationGroup({
+  title,
+  jobs,
+  onOpenApply,
+  onStarted,
+  onApplied,
+  onFollowUp,
+  onFollowUpSent,
+  onNotes,
+  onCopy,
+}: {
+  title: string;
+  jobs: Job[];
+  onOpenApply: (job: Job) => void;
+  onStarted: (job: Job) => void;
+  onApplied: (job: Job) => void;
+  onFollowUp: (job: Job) => void;
+  onFollowUpSent: (job: Job) => void;
+  onNotes: (job: Job) => void;
+  onCopy: (text: string, label: string) => void;
+}) {
+  return (
+    <section>
+      <h3>{title}</h3>
+      <div className="jobs-grid">
+        {jobs.map((job) => (
+          <ApplicationJobCard key={`${title}-${job.id}`} job={job} onOpenApply={onOpenApply} onStarted={onStarted} onApplied={onApplied} onFollowUp={onFollowUp} onFollowUpSent={onFollowUpSent} onNotes={onNotes} onCopy={onCopy} />
+        ))}
+        {!jobs.length && <p className="muted">No jobs in this group.</p>}
+      </div>
+    </section>
+  );
+}
+
+function ApplicationJobCard({
+  job,
+  onOpenApply,
+  onStarted,
+  onApplied,
+  onFollowUp,
+  onFollowUpSent,
+  onNotes,
+  onCopy,
+}: {
+  job: Job;
+  onOpenApply: (job: Job) => void;
+  onStarted: (job: Job) => void;
+  onApplied: (job: Job) => void;
+  onFollowUp: (job: Job) => void;
+  onFollowUpSent: (job: Job) => void;
+  onNotes: (job: Job) => void;
+  onCopy: (text: string, label: string) => void;
+}) {
+  const packetExists = Boolean(job.application_packet_dir || job.packet_generated_at || !job.needs_packet);
+  return (
+    <article className="job-card">
+      <div className="job-head">
+        <div>
+          <h3>{job.title}</h3>
+          <p className="muted">{job.company} | {job.source}</p>
+          <p className="muted">
+            Closes {job.source_closes_at || "unknown"} | applied {job.applied_at || "not yet"} | follow-up {job.follow_up_due_at || "not set"}
+          </p>
+          <p className="muted">Method: {job.application_method || "not set"} | Packet: {packetExists ? "available" : "not generated"}</p>
+          <p className="muted">Export: python scripts/export_application_packet.py --job-id {job.id}</p>
+        </div>
+        <div className="score"><strong>{job.match_score}</strong><span>{scoreBand(job)}</span></div>
+      </div>
+      <div className="chips">
+        <span className="chip green">{job.outcome_status || "not_started"}</span>
+        <span className="chip">{job.status}</span>
+        <span className="chip">{scoreBand(job)}</span>
+      </div>
+      <div className="actions">
+        <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
+        <button className="button" onClick={() => onOpenApply(job)}>Open Apply Link</button>
+        <Link className="button" href={`/jobs/${job.id}`}>View Packet</Link>
+        <button className="button" disabled={!job.generated_cover_letter} onClick={() => onCopy(job.generated_cover_letter, "cover letter")}>Copy Cover Letter</button>
+        <button className="button" disabled={!job.generated_followup_email} onClick={() => onCopy(job.generated_followup_email, "follow-up email")}>Copy Follow-Up Email</button>
+        <button className="button" onClick={() => onStarted(job)}>Mark Started</button>
+        <button className="button" onClick={() => onApplied(job)}>Mark Applied</button>
+        <button className="button" onClick={() => onFollowUp(job)}>Set Follow-Up Date</button>
+        <button className="button" onClick={() => onFollowUpSent(job)}>Mark Follow-Up Sent</button>
+        <button className="button" onClick={() => onNotes(job)}>Add Submission Notes</button>
+      </div>
+    </article>
   );
 }
 
@@ -421,6 +582,7 @@ function DailyDigest({ report }: { report: DailyReport | null }) {
         <div className="stat"><strong>{summary.high_match_unreviewed_jobs ?? 0}</strong><span>High match unreviewed</span></div>
         <div className="stat"><strong>{summary.closing_soon_jobs ?? 0}</strong><span>Closing soon</span></div>
         <div className="stat"><strong>{summary.packet_ready_jobs ?? summary.packets_ready ?? 0}</strong><span>Packet ready</span></div>
+        <div className="stat"><strong>{summary.follow_up_due_jobs ?? 0}</strong><span>Follow-up due</span></div>
         <div className="stat"><strong>{summary.source_errors ?? 0}</strong><span>Source errors</span></div>
       </div>
       <details>

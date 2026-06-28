@@ -34,6 +34,17 @@ export type Job = {
   close_days_remaining?: number | null;
   needs_packet?: boolean;
   packet_generated_at?: string;
+  application_url_opened_at?: string;
+  application_started_at?: string;
+  applied_at?: string;
+  follow_up_due_at?: string;
+  follow_up_sent_at?: string;
+  application_method?: "employer_portal" | "email" | "referral" | "recruiter" | "other" | "";
+  application_contact_name?: string;
+  application_contact_email?: string;
+  application_confirmation_number?: string;
+  application_submission_notes?: string;
+  outcome_status?: "not_started" | "ready_to_apply" | "applied" | "follow_up_due" | "interview" | "rejected" | "closed" | "withdrawn";
   status: string;
   match_score: number;
   fit_summary: string;
@@ -125,6 +136,15 @@ export type ReviewQueue = {
   applied_follow_up: Job[];
 };
 
+export type ApplicationBoard = {
+  ready_to_apply: Job[];
+  started: Job[];
+  applied: Job[];
+  follow_up_due: Job[];
+  interview: Job[];
+  rejected_closed: Job[];
+};
+
 export type DailyReport = {
   exists: boolean;
   date: string;
@@ -167,6 +187,17 @@ const demoJobs: Job[] = [
     close_days_remaining: 6,
     needs_packet: true,
     packet_generated_at: "",
+    application_url_opened_at: "",
+    application_started_at: "",
+    applied_at: "",
+    follow_up_due_at: "",
+    follow_up_sent_at: "",
+    application_method: "",
+    application_contact_name: "",
+    application_contact_email: "",
+    application_confirmation_number: "",
+    application_submission_notes: "",
+    outcome_status: "not_started",
     status: "new",
     match_score: 80,
     fit_summary: "Strong ArcGIS and web GIS overlap. Matches parcel, zoning, and land use experience.",
@@ -238,6 +269,17 @@ const demoJobs: Job[] = [
     close_days_remaining: null,
     needs_packet: true,
     packet_generated_at: "",
+    application_url_opened_at: "",
+    application_started_at: "",
+    applied_at: "",
+    follow_up_due_at: "",
+    follow_up_sent_at: "",
+    application_method: "",
+    application_contact_name: "",
+    application_contact_email: "",
+    application_confirmation_number: "",
+    application_submission_notes: "",
+    outcome_status: "not_started",
     status: "new",
     match_score: 71,
     fit_summary: "Planning, GIS, Python automation, and North Carolina location fit.",
@@ -298,6 +340,17 @@ function demoReviewQueue(): ReviewQueue {
   };
 }
 
+function demoApplicationBoard(): ApplicationBoard {
+  return {
+    ready_to_apply: demoJobs.filter((job) => (job.status === "ready_to_apply" || job.outcome_status === "ready_to_apply") && !job.application_started_at && !job.applied_at),
+    started: demoJobs.filter((job) => job.application_started_at && !job.applied_at),
+    applied: demoJobs.filter((job) => job.status === "applied" || job.outcome_status === "applied"),
+    follow_up_due: demoJobs.filter((job) => job.status === "follow_up_needed" || job.outcome_status === "follow_up_due"),
+    interview: demoJobs.filter((job) => job.status === "interview" || job.outcome_status === "interview"),
+    rejected_closed: demoJobs.filter((job) => job.status === "rejected" || ["rejected", "closed", "withdrawn"].includes(job.outcome_status || "")),
+  };
+}
+
 function demoReport(): DailyReport {
   return {
     exists: true,
@@ -319,6 +372,7 @@ function demoApi<T>(path: string, init?: RequestInit): T {
   const job = jobMatch ? demoJobs.find((row) => row.id === Number(jobMatch[1])) || demoJobs[0] : demoJobs[0];
   if (path === "/jobs") return demoJobs as T;
   if (path.startsWith("/review/queue")) return demoReviewQueue() as T;
+  if (path === "/application/board") return demoApplicationBoard() as T;
   if (path === "/reports/latest") return demoReport() as T;
   if (path === "/stats/overview") return demoStats() as T;
   if (path === "/sources") {
@@ -382,6 +436,10 @@ function demoApi<T>(path: string, init?: RequestInit): T {
   if (jobMatch && method !== "GET") {
     if (path.endsWith("/status") && init?.body) job.status = JSON.parse(String(init.body)).status;
     if (path.endsWith("/review") && init?.body) Object.assign(job, JSON.parse(String(init.body)), { reviewed_at: new Date().toISOString().slice(0, 10) });
+    if (path.endsWith("/application") && init?.body) Object.assign(job, JSON.parse(String(init.body)));
+    if (path.endsWith("/mark-application-started")) Object.assign(job, { application_started_at: new Date().toISOString().slice(0, 10), application_url_opened_at: new Date().toISOString().slice(0, 10), outcome_status: "ready_to_apply" });
+    if (path.endsWith("/mark-applied")) Object.assign(job, { status: "applied", applied_at: new Date().toISOString().slice(0, 10), outcome_status: "applied" });
+    if (path.endsWith("/mark-follow-up-sent")) Object.assign(job, { status: "applied", follow_up_sent_at: new Date().toISOString().slice(0, 10), outcome_status: "applied" });
     if (path.endsWith("/notes") && init?.body) job.notes = JSON.parse(String(init.body)).notes;
     if (path.endsWith("/document-checklist") && init?.body) job.document_checklist = JSON.parse(String(init.body)).checklist || job.document_checklist;
     return job as T;

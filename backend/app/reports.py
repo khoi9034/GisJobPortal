@@ -53,6 +53,7 @@ def summary_counts(result: dict[str, Any]) -> dict[str, int]:
         "stale_jobs",
         "packets_ready",
         "applied_followups_needed",
+        "follow_up_due_jobs",
     ]
     return {key: int(result.get(key) or 0) for key in keys}
 
@@ -82,6 +83,7 @@ def write_daily_report(result: dict[str, Any], jobs: list[dict[str, Any]], repor
         "stale_jobs": "Stale jobs",
         "packets_ready": "Packet ready jobs",
         "applied_followups_needed": "Applied follow-up jobs",
+        "follow_up_due_jobs": "Follow-up due jobs",
     }
     lines.extend(f"- {label}: {counts[key]}" for key, label in labels.items())
     lines.append(f"- Source errors: {len(errors)}")
@@ -114,9 +116,9 @@ def write_daily_report(result: dict[str, Any], jobs: list[dict[str, Any]], repor
 def parse_summary(text: str) -> dict[str, int]:
     summary: dict[str, int] = {}
     for line in text.splitlines():
-        match = re.match(r"- ([A-Za-z ]+): (\d+)$", line.strip())
+        match = re.match(r"- ([A-Za-z -]+): (\d+)$", line.strip())
         if match:
-            summary[match.group(1).lower().replace(" ", "_")] = int(match.group(2))
+            summary[match.group(1).lower().replace("-", "_").replace(" ", "_")] = int(match.group(2))
     return summary
 
 
