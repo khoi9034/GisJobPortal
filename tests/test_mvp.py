@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import analyze_job_matches, discover_sources, export_application_packet, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import analyze_job_matches, check_frontend_data_mode, discover_sources, export_application_packet, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -349,6 +349,30 @@ class MvpTests(unittest.TestCase):
         row = discover_sources.classify_url("https://example.com", "<a href='https://company.wd1.myworkdayjobs.com/jobs'>Jobs</a>")
         self.assertEqual(row["status"], "unsupported")
         self.assertEqual(row["type"], "unsupported/login portal")
+
+    def test_frontend_api_local_does_not_silently_fallback_to_demo(self):
+        text = Path("frontend/lib/api.ts").read_text(encoding="utf-8")
+        self.assertIn("if (API_MODE === \"demo\") return demoApi", text)
+        self.assertIn("Local API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.", text)
+        self.assertNotIn("catch {\n    return demoApi", text)
+
+    def test_frontend_data_mode_badge_text_logic_exists(self):
+        api_text = Path("frontend/lib/api.ts").read_text(encoding="utf-8")
+        dashboard_text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
+        for label in ["Demo Mode", "Local Backend", "Hosted Backend"]:
+            self.assertIn(label, api_text)
+        self.assertIn("dataModeLabel()", dashboard_text)
+
+    def test_check_frontend_data_mode_does_not_expose_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
+            env_path = Path(tmp) / ".env.local"
+            env_path.write_text("NEXT_PUBLIC_API_MODE=demo\nNEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000\n", encoding="utf-8")
+            output = io.StringIO()
+            with patch("scripts.check_frontend_data_mode.fetch_json", side_effect=[{"status": "ok", "database": "connected"}, [{"source": "USAJobs API"}, {"source": "Woolpert Careers"}]]), redirect_stdout(output):
+                self.assertEqual(check_frontend_data_mode.main(env_path), 0)
+        text = output.getvalue()
+        self.assertIn("warning: frontend is in demo mode while the backend has real jobs.", text)
+        self.assertNotIn("do-not-print-me", text)
 
     def test_validate_target_sources_skips_disabled_sources(self):
         enabled = {"name": "Enabled Manual", "type": "manual", "url": "data/sample_jobs.json", "enabled": True}

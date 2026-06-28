@@ -30,12 +30,36 @@ API docs: `http://localhost:8000/docs`
 
 ## Run Frontend
 
+For real local backend data, create `frontend/.env.local`:
+
+```text
+NEXT_PUBLIC_API_MODE=local
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Do not commit `frontend/.env.local`. Restart `npm run dev` after changing `NEXT_PUBLIC_*` values.
+
 ```powershell
 cd frontend
 npm run dev
 ```
 
 Dashboard: `http://localhost:3000`
+
+## Why am I seeing demo jobs?
+
+The Vercel site uses `NEXT_PUBLIC_API_MODE=demo` until the backend is hosted with durable storage. Local real data requires:
+
+1. Start FastAPI at `http://127.0.0.1:8000`.
+2. Set `frontend/.env.local` to `NEXT_PUBLIC_API_MODE=local` and `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`.
+3. Restart the frontend dev server.
+4. Open `http://localhost:3000`, not the Vercel URL.
+
+Check the current mode with:
+
+```powershell
+python scripts\check_frontend_data_mode.py
+```
 
 ## Vercel Frontend Deployment
 

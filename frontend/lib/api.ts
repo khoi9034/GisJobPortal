@@ -1,5 +1,11 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const API_MODE = process.env.NEXT_PUBLIC_API_MODE || "local";
+export const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "";
+export const API_MODE = process.env.NEXT_PUBLIC_API_MODE || "demo";
+
+export function dataModeLabel() {
+  if (API_MODE === "demo") return "Demo Mode";
+  if (!API_URL) return "Local API URL Missing";
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(API_URL) ? "Local Backend" : "Hosted Backend";
+}
 
 export type Job = {
   id: number;
@@ -450,14 +456,16 @@ function demoApi<T>(path: string, init?: RequestInit): T {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (API_MODE === "demo") return demoApi<T>(path, init);
+  if (!API_URL) throw new Error("Local API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.");
+  let response: Response;
   try {
-    const response = await fetch(`${API_URL}${path}`, {
+    response = await fetch(`${API_URL}${path}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     });
-    if (!response.ok) throw new Error(await response.text());
-    return response.json() as Promise<T>;
-  } catch {
-    return demoApi<T>(path, init);
+  } catch (error) {
+    throw new Error(`Backend connection failed for ${API_URL}${path}: ${error instanceof Error ? error.message : String(error)}`);
   }
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<T>;
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, AiStatus, ApplicationBoard, ApplicationPacket, DailyReport, Job, Source, Stats } from "../lib/api";
+import { api, AiStatus, API_URL, ApplicationBoard, ApplicationPacket, DailyReport, Job, Source, Stats, dataModeLabel } from "../lib/api";
 
 type View = "overview" | "review" | "applications" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 type FreshnessFilter = "active" | "fresh" | "last30" | "include_stale" | "closing" | "unknown";
@@ -313,10 +313,17 @@ export default function DashboardPage({ view }: { view: View }) {
     setMessage(`Copied ${label}.`);
   }
 
+  const headerMeta = {
+    mode: dataModeLabel(),
+    apiUrl: API_URL,
+    sourceCount: sources.length,
+    lastRefresh: reportTimestamp(report),
+  };
+
   if (view === "settings") {
     return (
       <Shell view={view}>
-        <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
         <div className="detail-grid">
           <section className="settings-section">
             <h3>Candidate Profile</h3>
@@ -385,7 +392,7 @@ export default function DashboardPage({ view }: { view: View }) {
   if (view === "review") {
     return (
       <Shell view={view}>
-        <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
         <DailyDigest report={report} />
         <ReviewFilterBar filters={reviewFilters} setFilters={setReviewFilters} />
         <ReviewGroup title="New Today" jobs={reviewFilterRows(reviewQueue.new_today, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
@@ -400,7 +407,7 @@ export default function DashboardPage({ view }: { view: View }) {
   if (view === "applications") {
     return (
       <Shell view={view}>
-        <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
         <section className="settings-section">
           <h3>Manual Apply Checklist</h3>
           <p className="muted">This portal prepares and tracks materials only. Submit applications manually outside the app.</p>
@@ -424,7 +431,7 @@ export default function DashboardPage({ view }: { view: View }) {
 
   return (
     <Shell view={view}>
-      <Header title={titles[view]} onRefresh={refreshJobs} message={message} />
+      <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
       {view === "overview" && <DailyDigest report={report} />}
       {stats && (
         <div className="stats">
@@ -703,13 +710,29 @@ function FreshnessChips({ job }: { job: Job }) {
   );
 }
 
-function Header({ title, onRefresh, message }: { title: string; onRefresh: () => void; message: string }) {
+function Header({
+  title,
+  onRefresh,
+  message,
+  meta,
+}: {
+  title: string;
+  onRefresh: () => void;
+  message: string;
+  meta: { mode: string; apiUrl: string; sourceCount: number; lastRefresh: string };
+}) {
   return (
     <>
       <div className="topbar">
         <div>
           <p className="eyebrow">Human approval required before applying</p>
           <h2>{title}</h2>
+          <div className="chips">
+            <span className={meta.mode === "Demo Mode" ? "chip warning" : "chip green"}>{meta.mode}</span>
+            {meta.mode !== "Demo Mode" && meta.apiUrl && <span className="chip">{meta.apiUrl}</span>}
+            <span className="chip">{meta.sourceCount} sources</span>
+            <span className="chip">Last refresh: {meta.lastRefresh}</span>
+          </div>
         </div>
         <button className="button primary" onClick={onRefresh}>Refresh Jobs</button>
       </div>
