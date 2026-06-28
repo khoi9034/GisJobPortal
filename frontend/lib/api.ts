@@ -3,8 +3,8 @@ export const API_MODE = process.env.NEXT_PUBLIC_API_MODE || "demo";
 
 export function dataModeLabel() {
   if (API_MODE === "demo") return "Demo Mode";
-  if (!API_URL) return "Local API URL Missing";
-  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(API_URL) ? "Local Backend" : "Hosted Backend";
+  if (!API_URL) return "API URL Missing";
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(API_URL) ? "Local Backend" : "Live API";
 }
 
 export type Job = {
@@ -456,7 +456,7 @@ function demoApi<T>(path: string, init?: RequestInit): T {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (API_MODE === "demo") return demoApi<T>(path, init);
-  if (!API_URL) throw new Error("Local API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.");
+  if (!API_URL) throw new Error("API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.");
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {

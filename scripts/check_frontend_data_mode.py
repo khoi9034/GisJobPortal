@@ -36,7 +36,7 @@ def read_env_file(path: Path = FRONTEND_ENV_LOCAL) -> dict[str, str]:
 
 def frontend_env(path: Path = FRONTEND_ENV_LOCAL) -> dict[str, str]:
     local = read_env_file(path)
-    mode = local.get("NEXT_PUBLIC_API_MODE") or os.getenv("NEXT_PUBLIC_API_MODE") or "demo"
+    mode = (local.get("NEXT_PUBLIC_API_MODE") or os.getenv("NEXT_PUBLIC_API_MODE") or "demo").lower()
     base = local.get("NEXT_PUBLIC_API_BASE_URL") or local.get("NEXT_PUBLIC_API_URL") or os.getenv("NEXT_PUBLIC_API_BASE_URL") or os.getenv("NEXT_PUBLIC_API_URL") or ""
     return {"mode": mode, "base_url": base}
 
@@ -52,8 +52,8 @@ def main(env_path: Path = FRONTEND_ENV_LOCAL) -> int:
     print(f"frontend env file: {env_path if env_path.exists() else 'not found'}")
     print(f"frontend API mode: {redact(env['mode'])}")
     print(f"frontend API base URL: {redact(env['base_url'] or '(missing; checking http://127.0.0.1:8001)')}")
-    if env["mode"] == "local" and not env["base_url"]:
-        print("warning: Local API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.")
+    if env["mode"] in {"api", "local"} and not env["base_url"]:
+        print("warning: API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.")
     try:
         health = fetch_json(f"{check_base.rstrip('/')}/health")
         jobs = fetch_json(f"{check_base.rstrip('/')}/jobs")

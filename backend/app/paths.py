@@ -33,17 +33,35 @@ def load_backend_env(path: Path = BACKEND_ENV_PATH) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-def database_path(strict: bool = True) -> Path:
+def database_url() -> str:
     load_backend_env()
-    url = os.getenv("DATABASE_URL", "sqlite:///./data/jobs.sqlite3")
-    if url.startswith("sqlite:///"):
+    return os.getenv("DATABASE_URL", "sqlite:///./data/jobs.sqlite3")
+
+
+def database_type(url: str | None = None) -> str:
+    value = (url or database_url()).lower()
+    if value.startswith("sqlite"):
+        return "sqlite"
+    if value.startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
+        return "postgres"
+    return "unknown"
+
+
+def database_runtime_type() -> str:
+    # ponytail: db.py is sqlite3-backed until the hosted Postgres adapter cutover.
+    return "sqlite"
+
+
+def database_path(strict: bool = True) -> Path:
+    url = database_url()
+    if database_type(url) == "sqlite" and url.startswith("sqlite:///"):
         raw_path = url.removeprefix("sqlite:///")
         path = Path(raw_path)
         return path if path.is_absolute() else ROOT / path
-    # ponytail: keep DB layer sqlite-only until Postgres is actually hosted.
+    # ponytail: the sqlite3 DB layer stays local-only until the hosted Postgres cutover.
     if not strict:
         return DATA_DIR / "jobs.sqlite3"
-    raise ValueError("Only sqlite:/// DATABASE_URL is supported locally; add a Postgres driver when production storage exists.")
+    raise ValueError("DATABASE_URL is not a sqlite:/// URL; use hosted Postgres only after the DB adapter cutover.")
 
 
 def api_env() -> str:

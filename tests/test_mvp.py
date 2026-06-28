@@ -8,13 +8,13 @@ from datetime import date, timedelta
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import analyze_job_matches, check_frontend_data_mode, check_ports, discover_sources, export_application_packet, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import analyze_job_matches, check_frontend_data_mode, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import ai_status_endpoint, application_board as application_board_endpoint, health, latest_report as latest_report_endpoint, sources as sources_endpoint, validate_source_config
+from backend.app.api import ai_status_endpoint, application_board as application_board_endpoint, deployment_status, health, latest_report as latest_report_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -24,7 +24,7 @@ from backend.app.documents import (
 )
 from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
-from backend.app.paths import api_env, cors_origins, database_path
+from backend.app.paths import api_env, cors_origins, database_path, database_type, database_url
 from backend.app.profile import load_profile
 from backend.app.scoring import score_band, score_job
 from backend.app.sources import load_search_profiles, load_sources
@@ -353,13 +353,13 @@ class MvpTests(unittest.TestCase):
     def test_frontend_api_local_does_not_silently_fallback_to_demo(self):
         text = Path("frontend/lib/api.ts").read_text(encoding="utf-8")
         self.assertIn("if (API_MODE === \"demo\") return demoApi", text)
-        self.assertIn("Local API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.", text)
+        self.assertIn("API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.", text)
         self.assertNotIn("catch {\n    return demoApi", text)
 
     def test_frontend_data_mode_badge_text_logic_exists(self):
         api_text = Path("frontend/lib/api.ts").read_text(encoding="utf-8")
         dashboard_text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
-        for label in ["Demo Mode", "Local Backend", "Hosted Backend"]:
+        for label in ["Demo Mode", "Local Backend", "Live API"]:
             self.assertIn(label, api_text)
         self.assertIn("dataModeLabel()", dashboard_text)
 
@@ -391,10 +391,11 @@ class MvpTests(unittest.TestCase):
         text = Path("README.md").read_text(encoding="utf-8")
         self.assertIn("Local Real Data Mode", text)
         self.assertIn("NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001", text)
+        self.assertIn("NEXT_PUBLIC_API_MODE=api", text)
 
     def test_launcher_script_does_not_contain_secrets(self):
         text = Path("scripts/start_local_dev.ps1").read_text(encoding="utf-8")
-        self.assertIn("NEXT_PUBLIC_API_MODE=local", text)
+        self.assertIn("NEXT_PUBLIC_API_MODE=api", text)
         self.assertNotRegex(text, r"vcp_|USAJOBS_AUTHORIZATION_KEY=|OPENROUTER_API_KEY=")
 
     def test_validate_target_sources_skips_disabled_sources(self):
@@ -714,12 +715,75 @@ class MvpTests(unittest.TestCase):
         result = health()
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["database"], "connected")
+        self.assertIn("version", result)
+
+    def test_deployment_status_does_not_expose_secrets(self):
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
+            result = deployment_status()
+        text = json.dumps(result)
+        self.assertIn(result["database_type"], {"sqlite", "postgres", "unknown"})
+        self.assertIn("cors_origins_count", result)
+        self.assertNotIn("do-not-print-me", text)
 
     def test_env_driven_cors_and_database_url(self):
         with patch.dict(os.environ, {"CORS_ORIGINS": "[http://localhost:3000,https://gis-job-portal.vercel.app]", "API_ENV": "test", "DATABASE_URL": "sqlite:///./tmp/test.db"}, clear=False):
             self.assertEqual(api_env(), "test")
             self.assertEqual(cors_origins(), ["http://localhost:3000", "https://gis-job-portal.vercel.app"])
             self.assertTrue(str(database_path()).endswith("tmp\\test.db") or str(database_path()).endswith("tmp/test.db"))
+
+    def test_sqlite_remains_default_and_postgres_url_is_recognized(self):
+        with patch("backend.app.paths.load_backend_env"):
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(database_url(), "sqlite:///./data/jobs.sqlite3")
+                self.assertEqual(database_type(), "sqlite")
+            with patch.dict(os.environ, {"DATABASE_URL": "postgresql+psycopg://user:pass@host:5432/db"}, clear=True):
+                self.assertEqual(database_type(), "postgres")
+                with self.assertRaises(ValueError):
+                    database_path()
+
+    def test_export_sqlite_to_json_does_not_include_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
+            db_path = Path(tmp) / "jobs.sqlite3"
+            export_dir = Path(tmp) / "exports"
+            db.insert_job({**self.job, "notes": "do-not-print-me", "application_packet_dir": r"C:\Dev\GisJobPortal\private\packet"}, db_path)
+            output = export_sqlite_to_json.export_db(export_dir, db_path)
+            text = output.read_text(encoding="utf-8")
+        self.assertIn('"jobs"', text)
+        self.assertNotIn("do-not-print-me", text)
+        self.assertNotIn("application_packet_dir", text)
+        self.assertNotIn(r"C:\Dev\GisJobPortal\private", text)
+
+    def test_import_json_to_db_handles_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seed = Path(tmp) / "seed.json"
+            target = Path(tmp) / "target.sqlite3"
+            seed.write_text(json.dumps({"sources": [], "jobs": [self.job]}), encoding="utf-8")
+            first = import_json_to_db.import_file(seed, target)
+            second = import_json_to_db.import_file(seed, target)
+            rows = db.list_jobs(path=target)
+        self.assertEqual(first["inserted"], 1)
+        self.assertEqual(second["duplicates"], 1)
+        self.assertEqual(len(rows), 1)
+
+    def test_backend_env_example_uses_placeholders_only(self):
+        text = Path("backend/.env.example").read_text(encoding="utf-8")
+        self.assertIn("DATABASE_URL=sqlite:///./data/jobs.sqlite3", text)
+        self.assertIn("postgresql+psycopg://USER:PASSWORD@HOST:PORT/DB", text)
+        self.assertNotIn("OPENROUTER_API_KEY", text)
+        self.assertNotRegex(text, r"vcp_|apiapi|AIza|sk-")
+
+    def test_frontend_env_example_documents_api_mode(self):
+        text = Path("frontend/.env.example").read_text(encoding="utf-8")
+        self.assertIn("NEXT_PUBLIC_API_MODE=api", text)
+        self.assertIn("NEXT_PUBLIC_API_BASE_URL=https://YOUR-HOSTED-BACKEND.example.com", text)
+        self.assertIn("NEXT_PUBLIC_API_MODE=demo", text)
+
+    def test_production_deployment_docs_exist(self):
+        text = Path("docs/PRODUCTION_REAL_DATA_DEPLOYMENT.md").read_text(encoding="utf-8")
+        checklist = Path("docs/HOSTED_BACKEND_CHECKLIST.md").read_text(encoding="utf-8")
+        self.assertIn("127.0.0.1", text)
+        self.assertIn("hosted Postgres", text)
+        self.assertIn("/deployment/status", checklist)
 
     def test_postgres_url_is_explicitly_future_work(self):
         with patch.dict(os.environ, {"DATABASE_URL": "postgresql://example"}, clear=False):

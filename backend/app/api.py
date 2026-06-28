@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -18,7 +19,7 @@ from .documents import (
     transcript_summary,
 )
 from .materials import generate_materials
-from .paths import api_env, cors_origins
+from .paths import ROOT, api_env, cors_origins, database_runtime_type, database_type
 from .profile import load_profile
 from .reports import latest_report as latest_daily_report
 from .scoring import score_job
@@ -100,7 +101,31 @@ def ensure_seeded() -> None:
 def health() -> dict[str, str]:
     with db.connection() as conn:
         conn.execute("SELECT 1").fetchone()
-    return {"status": "ok", "api_env": api_env(), "database": "connected"}
+    return {"status": "ok", "api_env": api_env(), "database": "connected", "version": app_version()}
+
+
+def app_version() -> str:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+@app.get("/deployment/status")
+def deployment_status() -> dict[str, Any]:
+    configured_sources = load_sources()
+    jobs = db.list_jobs()
+    return {
+        "api_env": api_env(),
+        "database_type": database_runtime_type(),
+        "configured_database_type": database_type(),
+        "database": "connected",
+        "cors_origins_count": len(cors_origins()),
+        "source_count": len(configured_sources),
+        "job_count": len(jobs),
+        "real_sources_enabled": sum(1 for source in configured_sources if source.get("enabled") and source.get("name") != "Sample GIS Jobs"),
+        "version": app_version(),
+    }
 
 
 @app.get("/jobs")

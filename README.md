@@ -8,7 +8,7 @@ It does not auto-submit applications, log into job boards, scrape LinkedIn/Indee
 
 - Frontend: Next.js + TypeScript
 - Backend: FastAPI + Python
-- Database: SQLite
+- Database: SQLite locally, hosted Postgres later
 - Config: YAML/JSON
 
 ## Setup
@@ -33,7 +33,7 @@ API docs: `http://127.0.0.1:8001/docs`
 For real local backend data, create `frontend/.env.local`:
 
 ```text
-NEXT_PUBLIC_API_MODE=local
+NEXT_PUBLIC_API_MODE=api
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001
 ```
 
@@ -59,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start_local_dev.ps1
 That script creates ignored `frontend/.env.local` if needed:
 
 ```text
-NEXT_PUBLIC_API_MODE=local
+NEXT_PUBLIC_API_MODE=api
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001
 ```
 
@@ -75,7 +75,7 @@ python scripts\check_frontend_data_mode.py
 The Vercel site uses `NEXT_PUBLIC_API_MODE=demo` until the backend is hosted with durable storage. Local real data requires:
 
 1. Start FastAPI at `http://127.0.0.1:8001`.
-2. Set `frontend/.env.local` to `NEXT_PUBLIC_API_MODE=local` and `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001`.
+2. Set `frontend/.env.local` to `NEXT_PUBLIC_API_MODE=api` and `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001`.
 3. Restart the frontend dev server.
 4. Open `http://localhost:3000`, not the Vercel URL.
 
@@ -94,10 +94,18 @@ Safe frontend environment variables:
 ```text
 NEXT_PUBLIC_APP_NAME=GIS Apply Copilot
 NEXT_PUBLIC_API_MODE=demo
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001
 ```
 
 Use `NEXT_PUBLIC_API_MODE=demo` until a hosted backend with durable storage is ready. The FastAPI + SQLite backend is local-only for now because Vercel serverless storage is not persistent.
+
+For live production data later, deploy the backend separately and set Vercel to:
+
+```text
+NEXT_PUBLIC_API_MODE=api
+NEXT_PUBLIC_API_BASE_URL=https://YOUR-HOSTED-BACKEND.example.com
+```
+
+See [Production Real Data Deployment](docs/PRODUCTION_REAL_DATA_DEPLOYMENT.md) and [Hosted Backend Checklist](docs/HOSTED_BACKEND_CHECKLIST.md).
 
 Do not commit `.env`, `.vercel/`, tokens, private documents, resume/transcript PDFs, extracted document text, or generated application packets.
 
@@ -311,31 +319,6 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8001/documents/transcript/extrac
 This creates `private/transcript/transcript_summary.md`. The transcript summary is used only for internships, government/entry-level roles asking for transcript/coursework/GPA/degree proof, or jobs where academic GIS coursework is useful.
 
 `private/`, `*.pdf`, `*.docx`, and `generated/application_packets/` are ignored by Git except placeholder files. Do not commit private documents. Generated application packets stay local. Review all materials before submitting applications.
-
-## Using Pony Alpha / OpenRouter
-
-The backend can use Pony Alpha through OpenRouter for application packet writing. The frontend never receives the OpenRouter key.
-
-Create `backend/.env` locally:
-
-```text
-AI_PROVIDER=openrouter
-AI_MODEL=openrouter/pony-alpha
-OPENROUTER_API_KEY=replace_with_your_local_secret
-DATABASE_URL=sqlite:///./gis_apply.db
-API_ENV=local
-CORS_ORIGINS=http://localhost:3000,https://gis-job-portal.vercel.app
-```
-
-Do not commit `backend/.env`. If `OPENROUTER_API_KEY` is missing or still a placeholder, the backend uses the template fallback generator.
-
-Check mode:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8001/ai/status
-```
-
-Only sanitized profile/config text, sanitized resume summary text, job details, scoring, missing skills, and the portfolio link are sent to the AI provider. Raw PDFs, transcripts, `.env` files, private folder paths, tokens, and generated packet history are not sent.
 
 ## Tests
 

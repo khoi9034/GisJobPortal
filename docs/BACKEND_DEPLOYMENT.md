@@ -9,12 +9,12 @@ Local run:
 Local env file:
 
 ```text
-DATABASE_URL=sqlite:///./gis_apply.db
+DATABASE_URL=sqlite:///./data/jobs.sqlite3
 API_ENV=local
 CORS_ORIGINS=http://localhost:3000,https://gis-job-portal.vercel.app
 ```
 
-`DATABASE_URL` currently supports local SQLite URLs. Add a Postgres driver and migration path only when a hosted Postgres database exists.
+`DATABASE_URL` defaults to local SQLite. Use hosted Postgres only with a hosted backend and durable database.
 
 Health check:
 
@@ -25,7 +25,7 @@ Invoke-RestMethod http://127.0.0.1:8001/health
 When the backend is hosted later, set Vercel frontend env:
 
 ```text
-NEXT_PUBLIC_API_MODE=local
+NEXT_PUBLIC_API_MODE=api
 NEXT_PUBLIC_API_BASE_URL=https://your-hosted-backend.example.com
 ```
 

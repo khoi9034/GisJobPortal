@@ -15,7 +15,7 @@ Write-Host "backend/.env: $(if (Test-Path $BackendEnv) { 'found' } else { 'missi
 
 if (-not (Test-Path $FrontendEnv)) {
   @"
-NEXT_PUBLIC_API_MODE=local
+NEXT_PUBLIC_API_MODE=api
 NEXT_PUBLIC_API_BASE_URL=$BackendUrl
 "@ | Set-Content -Path $FrontendEnv -Encoding utf8
   Write-Host "Created ignored frontend/.env.local for local backend mode."
