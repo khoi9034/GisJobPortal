@@ -43,7 +43,7 @@ API_ENV=production
 CORS_ORIGINS=https://gis-job-portal.vercel.app
 ```
 
-The current app recognizes Postgres URLs for deployment status and planning, while the local runtime remains SQLite-first until the hosted Postgres adapter is cut over.
+The current app recognizes Postgres URLs for deployment status and planning, while the runtime remains SQLite-first until the hosted Postgres adapter is cut over. Treat `database type: sqlite` in `/deployment/status` as not production-ready for live Vercel data.
 
 ## Seeding Production Later
 

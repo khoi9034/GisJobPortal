@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import analyze_job_matches, check_frontend_data_mode, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -374,6 +374,21 @@ class MvpTests(unittest.TestCase):
         self.assertIn("warning: frontend is in demo mode while the backend has real jobs.", text)
         self.assertNotIn("do-not-print-me", text)
 
+    def test_check_hosted_backend_reports_readiness_without_secrets(self):
+        responses = {
+            "/health": {"status": "ok"},
+            "/deployment/status": {"api_env": "production", "database_type": "postgres", "configured_database_type": "postgres", "real_sources_enabled": 2},
+            "/jobs": [{"source": "USAJobs API"}, {"source": "Woolpert Careers"}],
+            "/review/queue": {"fresh_high_match": [{"id": 1}], "needs_review": []},
+            "/application/board": {"ready_to_apply": [], "applied": [{"id": 2}]},
+        }
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_hosted_backend.fetch_json", side_effect=lambda _base, path: responses[path]), redirect_stdout(output):
+            self.assertEqual(check_hosted_backend.main(["--url", "https://backend.example.com"]), 0)
+        text = output.getvalue()
+        self.assertIn("production ready: yes", text)
+        self.assertNotIn("do-not-print-me", text)
+
     def test_check_ports_runs_without_secrets(self):
         output = io.StringIO()
         with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_ports.is_open", return_value=True), patch("scripts.check_ports.http_get", return_value=(True, "HTTP 200")), patch("scripts.check_ports.health", return_value=(False, "/health HTTP 404")), redirect_stdout(output):
@@ -397,6 +412,12 @@ class MvpTests(unittest.TestCase):
         text = Path("scripts/start_local_dev.ps1").read_text(encoding="utf-8")
         self.assertIn("NEXT_PUBLIC_API_MODE=api", text)
         self.assertNotRegex(text, r"vcp_|USAJOBS_AUTHORIZATION_KEY=|OPENROUTER_API_KEY=")
+
+    def test_procfile_has_backend_start_command(self):
+        text = Path("Procfile").read_text(encoding="utf-8")
+        self.assertIn("uvicorn backend.app.api:app", text)
+        self.assertIn("--host 0.0.0.0", text)
+        self.assertIn("--port $PORT", text)
 
     def test_validate_target_sources_skips_disabled_sources(self):
         enabled = {"name": "Enabled Manual", "type": "manual", "url": "data/sample_jobs.json", "enabled": True}

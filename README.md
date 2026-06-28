@@ -107,6 +107,12 @@ NEXT_PUBLIC_API_BASE_URL=https://YOUR-HOSTED-BACKEND.example.com
 
 See [Production Real Data Deployment](docs/PRODUCTION_REAL_DATA_DEPLOYMENT.md) and [Hosted Backend Checklist](docs/HOSTED_BACKEND_CHECKLIST.md).
 
+After a backend is hosted, verify it before switching Vercel:
+
+```powershell
+python scripts\check_hosted_backend.py --url https://YOUR-HOSTED-BACKEND.example.com
+```
+
 Do not commit `.env`, `.vercel/`, tokens, private documents, resume/transcript PDFs, extracted document text, or generated application packets.
 
 From `frontend/`, deployment commands use `VERCEL_TOKEN` from the local environment:
