@@ -45,13 +45,13 @@ sources:
     url: https://www.cabarruscounty.us/Government/Departments/Human-Resources/Careers
     enabled: false
     first_seen_only: true
-    notes: Manual review only; no scraping, login automation, or auto-apply.
+    notes: Needs manual review; discovery returned 403, so no safe ATS automation is enabled.
   - name: City of Concord Careers
     type: manual
     url: https://concordnc.gov/Departments/Human-Resources/Careers
     enabled: false
     first_seen_only: true
-    notes: Manual review only; no scraping, login automation, or auto-apply.
+    notes: Public career page only; no supported ATS endpoint confirmed yet.
   - name: City of Charlotte Careers
     type: manual
     url: https://www.charlottenc.gov/Services/Jobs
@@ -75,7 +75,7 @@ sources:
     url: https://www.ncdot.gov/about-us/our-people/careers/Pages/default.aspx
     enabled: false
     first_seen_only: true
-    notes: Manual review only; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via Workday; manual browser review only.
   - name: NC Department of Commerce Careers
     type: manual
     url: https://www.commerce.nc.gov/about-us/careers
@@ -111,73 +111,95 @@ sources:
     url: https://www.kimley-horn.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Manual review only; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via iCIMS; manual browser review only.
   - name: HDR Careers
     type: manual
     url: https://www.hdrinc.com/careers
     enabled: false
     first_seen_only: true
-    notes: Manual review source; no portal automation.
+    notes: Unsupported/login portal discovered via Taleo; manual browser review only.
   - name: Dewberry Careers
     type: manual
     url: https://www.dewberry.com/careers
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via iCIMS; manual browser review only.
   - name: Timmons Group Careers
     type: manual
     url: https://www.timmons.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Public career page only; no supported ATS endpoint confirmed yet.
   - name: WithersRavenel Careers
     type: manual
     url: https://withersravenel.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via Paylocity; manual browser review only.
   - name: Stewart Careers
     type: manual
     url: https://www.stewartinc.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Public career page only; no supported ATS endpoint confirmed yet.
   - name: McAdams Careers
     type: manual
     url: https://mcadamsco.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Public career page only; no supported ATS endpoint confirmed yet.
   - name: Freese and Nichols Careers
     type: manual
     url: https://www.freese.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via Workday; manual browser review only.
   - name: SAM Companies Careers
     type: manual
     url: https://www.sam.biz/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via iCIMS; manual browser review only.
   - name: Woolpert Careers
-    type: manual
-    url: https://woolpert.com/careers/
-    enabled: false
+    type: greenhouse
+    url: https://boards.greenhouse.io/woolpert
+    board_token: woolpert
+    company: Woolpert
+    enabled: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: true
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    include_keyword_fields:
+      - title
+    include_keywords:
+      - GIS
+      - geospatial
+      - spatial
+      - mapping
+      - survey
+      - surveyor
+      - LiDAR
+      - photogrammetry
+      - remote sensing
+      - aerial
+      - sensor
+      - planning
+      - planner
+      - transportation
+    notes: Confirmed public Greenhouse board; updated_at is not treated as posted date.
   - name: NV5 Geospatial Careers
     type: manual
     url: https://www.nv5.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via iCIMS; manual browser review only.
   - name: Michael Baker International Careers
     type: manual
     url: https://mbakerintl.com/careers/
     enabled: false
     first_seen_only: true
-    notes: Disabled until ATS/source type is confirmed; no scraping, login automation, or auto-apply.
+    notes: Unsupported/login portal discovered via Oracle Cloud; manual browser review only.
   - name: Greenhouse Example
     type: greenhouse
     url: https://boards.greenhouse.io/example

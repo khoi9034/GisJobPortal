@@ -173,6 +173,16 @@ function nextSourceAction(source: Source) {
   return "Ready";
 }
 
+function sourceSummary(sources: Source[]) {
+  const unsupported = sources.filter((source) => /unsupported|login|workday|linkedin|indeed/i.test(`${source.notes} ${source.url}`)).length;
+  return {
+    active: sources.filter((source) => source.enabled).length,
+    disabled: sources.filter((source) => !source.enabled).length,
+    unsupported,
+    manualReview: sources.filter((source) => !source.enabled && ["manual", "static_url"].includes(source.type) && !/unsupported|login/i.test(source.notes)).length,
+  };
+}
+
 export default function DashboardPage({ view }: { view: View }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -207,6 +217,7 @@ export default function DashboardPage({ view }: { view: View }) {
 
   const visibleJobs = useMemo(() => filterJobs(jobs, view, freshness), [jobs, view, freshness]);
   const reviewQueue = useMemo(() => buildReviewQueue(jobs, reviewFilters.includeStale), [jobs, reviewFilters.includeStale]);
+  const sourceCounts = useMemo(() => sourceSummary(sources), [sources]);
 
   async function refreshJobs() {
     const result = await api<Record<string, number>>("/jobs/refresh", { method: "POST" });
@@ -278,6 +289,12 @@ export default function DashboardPage({ view }: { view: View }) {
           <section className="settings-section">
             <h3>Job Sources</h3>
             <button className="button" onClick={validateSources}>Validate Sources</button>
+            <div className="stats">
+              <div className="stat"><strong>{sourceCounts.active}</strong><span>Active sources</span></div>
+              <div className="stat"><strong>{sourceCounts.disabled}</strong><span>Disabled sources</span></div>
+              <div className="stat"><strong>{sourceCounts.manualReview}</strong><span>Manual review</span></div>
+              <div className="stat"><strong>{sourceCounts.unsupported}</strong><span>Unsupported</span></div>
+            </div>
             {sources.map((source) => (
               <p key={source.name}>
                 <strong>{source.name}</strong> <span className="chip">{source.type}</span> <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span><br />

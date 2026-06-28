@@ -7,7 +7,7 @@ from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import analyze_job_matches, qa_application_packet, setup_usajobs, source_toggle
+from scripts import analyze_job_matches, discover_sources, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -150,6 +150,14 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(jobs[0]["source_posted_at"], "")
         self.assertEqual(jobs[0]["freshness_confidence"], "first_seen_only")
 
+    def test_source_include_keywords_filter_prevents_generic_jobs(self):
+        jobs = [
+            {"title": "Accounts Payable", "description": "Invoices", "requirements": ""},
+            {"title": "GIS Analyst", "description": "ArcGIS mapping", "requirements": ""},
+        ]
+        filtered = collectors.filter_by_source_keywords(jobs, {"include_keywords": ["GIS", "mapping"]})
+        self.assertEqual([job["title"] for job in filtered], ["GIS Analyst"])
+
     def test_lever_collector_normalizes_mock_response(self):
         source = {"name": "Example Lever", "type": "lever", "url": "https://jobs.lever.co/example", "site": "example", "company": "Example Co", "enabled": True}
         data = [{"text": "Spatial Analyst", "hostedUrl": "https://jobs.lever.co/example/abc", "applyUrl": "https://jobs.lever.co/example/abc/apply", "categories": {"location": "Remote", "team": "GIS"}, "descriptionPlain": "Python GIS and ArcGIS", "lists": [{"content": "Planning and parcels"}]}]
@@ -196,6 +204,13 @@ class MvpTests(unittest.TestCase):
             row = validate_source(source)
         self.assertEqual(row["validation_status"], "error")
         self.assertIn("404", row["last_error"])
+
+    def test_enabled_safe_greenhouse_and_lever_validate_with_mocked_collectors(self):
+        greenhouse = {"name": "Good Greenhouse", "type": "greenhouse", "url": "https://boards.greenhouse.io/example", "board_token": "example", "enabled": True}
+        lever = {"name": "Good Lever", "type": "lever", "url": "https://jobs.lever.co/example", "site": "example", "enabled": True}
+        with patch("backend.app.source_validation.collect_from_source", return_value=[self.job]):
+            self.assertEqual(validate_source(greenhouse)["validation_status"], "ok")
+            self.assertEqual(validate_source(lever)["validation_status"], "ok")
 
     def test_usajobs_missing_credentials_returns_warning(self):
         source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}
@@ -258,6 +273,32 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(rows)
         for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "jobs_sampled"]:
             self.assertIn(field, rows[0])
+
+    def test_discover_sources_creates_reports_without_secrets(self):
+        targets = [{"organization": "Example", "expected_type": "unknown", "status": "manual", "url": "https://example.com/careers", "notes": "", "priority": "High", "date_support": "First-seen only"}]
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
+            discovery_path = Path(tmp) / "SOURCE_DISCOVERY_REPORT.md"
+            activation_path = Path(tmp) / "SOURCE_ACTIVATION_STATUS.md"
+            with patch("scripts.discover_sources.DISCOVERY_REPORT_PATH", discovery_path), patch("scripts.discover_sources.ACTIVATION_STATUS_PATH", activation_path), patch("scripts.discover_sources.fetch_url", return_value=("https://example.com/careers", "do-not-print-me boards.greenhouse.io/example", "")), patch("scripts.discover_sources.source_lookup", return_value={}):
+                rows = discover_sources.discover(targets)
+                discover_sources.write_reports(rows)
+            self.assertTrue(discovery_path.exists())
+            self.assertTrue(activation_path.exists())
+            text = discovery_path.read_text(encoding="utf-8") + activation_path.read_text(encoding="utf-8")
+        self.assertIn("Source Discovery Report", text)
+        self.assertIn("Source Activation Status", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_source_classification_does_not_guess_unsupported_as_safe(self):
+        row = discover_sources.classify_url("https://example.com", "<a href='https://company.wd1.myworkdayjobs.com/jobs'>Jobs</a>")
+        self.assertEqual(row["status"], "unsupported")
+        self.assertEqual(row["type"], "unsupported/login portal")
+
+    def test_validate_target_sources_skips_disabled_sources(self):
+        enabled = {"name": "Enabled Manual", "type": "manual", "url": "data/sample_jobs.json", "enabled": True}
+        disabled = {"name": "Disabled Lever", "type": "lever", "url": "https://jobs.lever.co/example", "enabled": False}
+        with patch("scripts.validate_target_sources.load_sources", return_value=[enabled, disabled]):
+            self.assertEqual([source["name"] for source in validate_target_sources.target_sources()], ["Enabled Manual"])
 
     def test_usajobs_collector_normalizes_sample_response(self):
         source = {"name": "USAJobs API", "type": "api", "url": "https://data.usajobs.gov/api/search", "enabled": True}

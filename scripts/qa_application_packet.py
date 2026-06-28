@@ -28,7 +28,7 @@ EXPECTED_FILES = {
 def best_job() -> dict[str, Any] | None:
     rows = [
         job for job in db.list_jobs(active_only=True)
-        if job.get("source") == "USAJobs API" and not job.get("is_stale") and not job.get("is_closed_or_missing")
+        if job.get("source") != "Sample GIS Jobs" and not job.get("is_stale") and not job.get("is_closed_or_missing")
     ]
     rows.sort(key=lambda job: (int(job.get("match_score") or 0), job.get("source_posted_at") or job.get("first_seen_at") or ""), reverse=True)
     return rows[0] if rows else None
@@ -65,7 +65,7 @@ def quality_checks(job: dict[str, Any], packet: dict[str, Any], profile: dict[st
     if bool(checklist.get("transcript_required")) != bool(expected_checklist.get("transcript_required")):
         warnings.append("transcript checklist does not match detected requirement")
     if int(job.get("match_score") or 0) < 70:
-        warnings.append("no USAJobs match above 70 found; using best current USAJobs job")
+        warnings.append("no real-source match above 70 found; using best current real job")
     return warnings
 
 
@@ -73,7 +73,7 @@ def main() -> int:
     os.environ["OPENROUTER_API_KEY"] = ""
     job = best_job()
     if not job:
-        print("No active USAJobs job found. Run python scripts/refresh_jobs.py first.")
+        print("No active real-source job found. Run python scripts/refresh_jobs.py first.")
         return 1
 
     packet = generate_application_packet(job["id"])

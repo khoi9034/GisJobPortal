@@ -216,6 +216,19 @@ Lever postings are normalized from the public JSON endpoint. If no reliable post
 
 Manual career-page sources are for human review and copy/paste intake only. To add one safely, add a disabled `manual` source with the career page URL and notes. Do not automate LinkedIn, Indeed, Workday, login-gated portals, or application submission; those sources do not provide a safe public ATS endpoint for this MVP.
 
+## Expanding Job Sources
+
+USAJobs is live locally. Before enabling another real source, run:
+
+```powershell
+python scripts\discover_sources.py
+python scripts\validate_target_sources.py
+```
+
+Greenhouse and Lever sources are company-specific; only add a `board_token` or `site` slug after the public board URL is confirmed. Local government pages should stay disabled/manual first unless a safe public endpoint is confirmed. Unsupported or login-based portals such as LinkedIn, Indeed, Workday, and similar systems are intentionally not automated.
+
+Discovery writes `docs/SOURCE_DISCOVERY_REPORT.md` and `docs/SOURCE_ACTIVATION_STATUS.md`.
+
 ## Private Documents
 
 Put your resume PDF in `private/resume/`, then run:

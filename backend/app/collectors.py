@@ -219,6 +219,17 @@ def collect_lever(source: dict[str, Any]) -> list[dict[str, Any]]:
     return [normalize_lever_job(item, source) for item in data]
 
 
+def filter_by_source_keywords(jobs: list[dict[str, Any]], source: dict[str, Any]) -> list[dict[str, Any]]:
+    keywords = [str(keyword).lower() for keyword in source.get("include_keywords", []) if str(keyword).strip()]
+    if not keywords:
+        return jobs
+    fields = [str(field) for field in source.get("include_keyword_fields", ["title", "description", "requirements"])]
+    return [
+        job for job in jobs
+        if any(keyword in " ".join(str(job.get(field, "")).lower() for field in fields) for keyword in keywords)
+    ]
+
+
 def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
     if not source.get("enabled", True):
         return []
@@ -227,13 +238,13 @@ def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
         if not path.is_absolute():
             path = ROOT / path
         with open(path if path.exists() else SAMPLE_JOBS_PATH, "r", encoding="utf-8") as handle:
-            return [normalize_job(item, source) for item in json.load(handle)]
+            return filter_by_source_keywords([normalize_job(item, source) for item in json.load(handle)], source)
     if source["type"] == "api" and source["name"].lower().startswith("usajobs"):
-        return collect_usajobs(source)
+        return filter_by_source_keywords(collect_usajobs(source), source)
     if source["type"] == "greenhouse":
-        return collect_greenhouse(source)
+        return filter_by_source_keywords(collect_greenhouse(source), source)
     if source["type"] == "lever":
-        return collect_lever(source)
+        return filter_by_source_keywords(collect_lever(source), source)
     return []
 
 
