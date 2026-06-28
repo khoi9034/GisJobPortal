@@ -83,6 +83,19 @@ function isClosingSoon(job: Job) {
   return days !== null && days >= 0 && days <= CLOSING_SOON_DAYS;
 }
 
+function scoreBand(job: Job) {
+  if (job.score_band) return job.score_band;
+  if (job.match_score >= 85) return "excellent fit";
+  if (job.match_score >= 70) return "strong fit";
+  if (job.match_score >= 55) return "possible fit";
+  if (job.match_score >= 40) return "weak/maybe";
+  return "low fit";
+}
+
+function sourceConfidence(job: Job) {
+  return job.freshness_confidence === "source_posted_date" ? 0 : 1;
+}
+
 function isActive(job: Job, includeStale: boolean) {
   const jobAge = age(job);
   if (job.is_closed_or_missing) return false;
@@ -91,11 +104,11 @@ function isActive(job: Job, includeStale: boolean) {
 
 function sortJobs(jobs: Job[]) {
   return [...jobs].sort((a, b) => {
-    const posted = (parseDate(b.source_posted_at || b.date_posted)?.getTime() || 0) - (parseDate(a.source_posted_at || a.date_posted)?.getTime() || 0);
     const closeA = parseDate(a.source_closes_at)?.getTime() || Number.MAX_SAFE_INTEGER;
     const closeB = parseDate(b.source_closes_at)?.getTime() || Number.MAX_SAFE_INTEGER;
+    const posted = (parseDate(b.source_posted_at || b.date_posted)?.getTime() || 0) - (parseDate(a.source_posted_at || a.date_posted)?.getTime() || 0);
     const firstSeen = (parseDate(b.first_seen_at || b.date_found)?.getTime() || 0) - (parseDate(a.first_seen_at || a.date_found)?.getTime() || 0);
-    return b.match_score - a.match_score || posted || closeA - closeB || firstSeen;
+    return b.match_score - a.match_score || closeA - closeB || posted || sourceConfidence(a) - sourceConfidence(b) || firstSeen;
   });
 }
 
@@ -103,7 +116,7 @@ function filterJobs(jobs: Job[], view: View, freshness: FreshnessFilter) {
   const includeStale = freshness === "include_stale";
   let rows = jobs.filter((job) => isActive(job, includeStale));
   if (view === "new") rows = rows.filter((job) => job.status === "new");
-  if (view === "best") rows = rows.filter((job) => job.match_score >= 75 && job.status !== "skipped");
+  if (view === "best") rows = rows.filter((job) => job.match_score >= 70 && job.status !== "skipped");
   if (view === "saved") rows = rows.filter((job) => job.status === "saved");
   if (view === "applied") rows = rows.filter((job) => job.status === "applied");
   if (view === "follow") rows = rows.filter((job) => job.status === "follow_up_needed");
@@ -128,7 +141,7 @@ function buildReviewQueue(jobs: Job[], includeStale: boolean) {
   const rows = sortJobs(jobs.filter((job) => reviewActive(job, includeStale)));
   return {
     new_today: rows.filter((job) => isUnreviewed(job) && (job.first_seen_at || job.date_found) === today),
-    fresh_high_match: rows.filter((job) => isUnreviewed(job) && job.match_score >= 75 && !job.is_stale),
+    fresh_high_match: rows.filter((job) => isUnreviewed(job) && job.match_score >= 70 && !job.is_stale),
     closing_soon: rows.filter((job) => isClosingSoon(job) && !["applied", "skipped"].includes(job.status)),
     needs_review: rows.filter(isUnreviewed),
     packet_ready: rows.filter((job) => ["materials_generated", "ready_to_apply"].includes(job.status)),
@@ -139,7 +152,7 @@ function buildReviewQueue(jobs: Job[], includeStale: boolean) {
 function reviewFilterRows(jobs: Job[], filters: ReviewFilters) {
   return jobs.filter((job) => {
     if (filters.freshOnly && !(age(job) !== null && age(job)! <= FRESH_DAYS)) return false;
-    if (filters.highMatchOnly && job.match_score < 75) return false;
+    if (filters.highMatchOnly && job.match_score < 70) return false;
     if (filters.closingSoon && !isClosingSoon(job)) return false;
     if (filters.unreviewedOnly && !isUnreviewed(job)) return false;
     return true;
@@ -327,8 +340,8 @@ export default function DashboardPage({ view }: { view: View }) {
       {stats && (
         <div className="stats">
           <div className="stat"><strong>{stats.total}</strong><span>Total jobs</span></div>
-          <div className="stat"><strong>{stats.high_matches}</strong><span>75+ matches</span></div>
-          <div className="stat"><strong>{stats.medium_matches}</strong><span>50-74 matches</span></div>
+          <div className="stat"><strong>{stats.high_matches}</strong><span>70+ strong fits</span></div>
+          <div className="stat"><strong>{stats.medium_matches}</strong><span>55-69 possible</span></div>
           <div className="stat"><strong>{stats.by_status.follow_up_needed || 0}</strong><span>Need follow-up</span></div>
         </div>
       )}
@@ -477,10 +490,11 @@ function ReviewJobCard({
             {closeDays !== null && closeDays !== undefined ? ` | ${closeDays} days left` : ""}
           </p>
         </div>
-        <div className="score"><strong>{job.match_score}</strong><span>match</span></div>
+        <div className="score"><strong>{job.match_score}</strong><span>{scoreBand(job)}</span></div>
       </div>
       <div className="chips">
         <span className="chip green">{job.review_status || "unreviewed"}</span>
+        <span className="chip green">{scoreBand(job)}</span>
         <span className="chip">{job.priority_bucket || "medium"}</span>
         <FreshnessChips job={job} />
         {job.fit_reasons?.[0] && <span className="chip">{job.fit_reasons[0]}</span>}
@@ -547,10 +561,11 @@ function JobCard({
             {job.source_closes_at ? ` | closes ${job.source_closes_at}` : ""}
           </p>
         </div>
-        <div className="score"><strong>{job.match_score}</strong><span>match</span></div>
+        <div className="score"><strong>{job.match_score}</strong><span>{scoreBand(job)}</span></div>
       </div>
       <div className="chips">
         <span className="chip green">{job.status}</span>
+        <span className="chip green">{scoreBand(job)}</span>
         <FreshnessChips job={job} />
         {(job.fit_reasons || []).slice(0, 3).map((reason) => <span className="chip" key={reason}>{reason}</span>)}
         {(job.missing_skills || []).slice(0, 3).map((skill) => <span className="chip red" key={skill}>{skill}</span>)}

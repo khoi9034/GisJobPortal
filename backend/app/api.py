@@ -235,9 +235,9 @@ def overview() -> dict[str, Any]:
     jobs = db.list_jobs()
     return {
         "total": len(jobs),
-        "high_matches": sum(1 for item in jobs if item["match_score"] >= 75),
-        "medium_matches": sum(1 for item in jobs if 50 <= item["match_score"] < 75),
-        "low_matches": sum(1 for item in jobs if item["match_score"] < 50),
+        "high_matches": sum(1 for item in jobs if item["match_score"] >= 70),
+        "medium_matches": sum(1 for item in jobs if 55 <= item["match_score"] < 70),
+        "low_matches": sum(1 for item in jobs if item["match_score"] < 55),
         "by_status": {status: sum(1 for item in jobs if item["status"] == status) for status in sorted(db.VALID_STATUSES)},
     }
 

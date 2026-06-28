@@ -101,7 +101,7 @@ def normalize_usajobs_item(item: dict[str, Any], source: dict[str, Any]) -> dict
     )
 
 
-def fetch_usajobs(term: str, source: dict[str, Any]) -> dict[str, Any]:
+def fetch_usajobs(term: str, source: dict[str, Any], location: str = "") -> dict[str, Any]:
     load_backend_env()
     api_key = os.getenv("USAJOBS_AUTHORIZATION_KEY") or os.getenv("USAJOBS_API_KEY", "")
     user_agent = os.getenv("USAJOBS_USER_AGENT", "")
@@ -115,8 +115,8 @@ def fetch_usajobs(term: str, source: dict[str, Any]) -> dict[str, Any]:
         "WhoMayApply": "public",
         "DatePosted": str(source.get("default_date_posted_days", 30)),
     }
-    if source.get("location"):
-        params["LocationName"] = source["location"]
+    if location or source.get("location"):
+        params["LocationName"] = location or source["location"]
     url = f"{source['url']}?{parse.urlencode(params)}"
     req = request.Request(
         url,
@@ -143,10 +143,12 @@ def fetch_json(url: str) -> Any:
 
 def collect_usajobs(source: dict[str, Any]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
+    locations = [""] + [str(location) for location in source.get("locations", []) if str(location).strip()]
     for term in source.get("search_terms") or USAJOBS_SEARCH_TERMS:
-        data = fetch_usajobs(term, source)
-        items = data.get("SearchResult", {}).get("SearchResultItems", [])
-        jobs.extend(normalize_usajobs_item(item, source) for item in items)
+        for location in locations:
+            data = fetch_usajobs(term, source, location)
+            items = data.get("SearchResult", {}).get("SearchResultItems", [])
+            jobs.extend(normalize_usajobs_item(item, source) for item in items)
     return jobs
 
 
@@ -293,9 +295,9 @@ def refresh_jobs(
     counts = db.freshness_counts(db_path)
     active_jobs = db.list_jobs(path=db_path, active_only=True)
     bands = {
-        "high_matches": sum(1 for item in active_jobs if item["match_score"] >= 75),
-        "medium_matches": sum(1 for item in active_jobs if 50 <= item["match_score"] < 75),
-        "low_matches": sum(1 for item in active_jobs if item["match_score"] < 50),
+        "high_matches": sum(1 for item in active_jobs if item["match_score"] >= 70),
+        "medium_matches": sum(1 for item in active_jobs if 55 <= item["match_score"] < 70),
+        "low_matches": sum(1 for item in active_jobs if item["match_score"] < 55),
     }
     result = {
         "sources_checked": sources_checked,

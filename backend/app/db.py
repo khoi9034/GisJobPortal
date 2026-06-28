@@ -30,6 +30,8 @@ JSON_FIELDS = {
     "fit_reasons",
     "missing_skills",
     "keyword_matches",
+    "positive_matches",
+    "penalty_matches",
     "resume_bullet_suggestions",
     "document_checklist",
 }
@@ -60,6 +62,10 @@ JOB_COLUMNS = [
     "scoring_breakdown",
     "fit_reasons",
     "keyword_matches",
+    "positive_matches",
+    "penalty_matches",
+    "score_reason",
+    "score_band",
     "recommended_resume_angle",
     "application_packet_dir",
     "document_checklist",
@@ -136,6 +142,10 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 scoring_breakdown TEXT DEFAULT '{}',
                 fit_reasons TEXT DEFAULT '[]',
                 keyword_matches TEXT DEFAULT '[]',
+                positive_matches TEXT DEFAULT '[]',
+                penalty_matches TEXT DEFAULT '[]',
+                score_reason TEXT DEFAULT '',
+                score_band TEXT DEFAULT '',
                 recommended_resume_angle TEXT DEFAULT '',
                 application_packet_dir TEXT DEFAULT '',
                 document_checklist TEXT DEFAULT '{}',
@@ -243,6 +253,10 @@ def ensure_job_columns(conn: sqlite3.Connection) -> None:
         "packet_generated_at": "TEXT DEFAULT ''",
         "is_stale": "INTEGER NOT NULL DEFAULT 0",
         "is_closed_or_missing": "INTEGER NOT NULL DEFAULT 0",
+        "positive_matches": "TEXT DEFAULT '[]'",
+        "penalty_matches": "TEXT DEFAULT '[]'",
+        "score_reason": "TEXT DEFAULT ''",
+        "score_band": "TEXT DEFAULT ''",
     }
     for column, ddl in additions.items():
         if column not in existing:
@@ -290,11 +304,12 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
 
 def priority_for_job(job: dict[str, Any]) -> str:
     days = job.get("close_days_remaining")
-    if isinstance(days, int) and 0 <= days <= 7:
-        return "urgent"
-    if int(job.get("match_score") or 0) >= 75:
+    score = int(job.get("match_score") or 0)
+    if score >= 70:
         return "high"
-    if int(job.get("match_score") or 0) >= 50:
+    if isinstance(days, int) and 0 <= days <= 7 and score >= 55:
+        return "urgent"
+    if score >= 55:
         return "medium"
     return "low"
 
@@ -501,8 +516,9 @@ def list_jobs(status: str | None = None, path: Path | str = DB_PATH, active_only
         params.append(int(rules["hide_after_days"]))
     sql += """
         ORDER BY match_score DESC,
-            coalesce(nullif(source_posted_at, ''), first_seen_at, date_found) DESC,
             CASE WHEN source_closes_at = '' THEN '9999-12-31' ELSE source_closes_at END ASC,
+            coalesce(nullif(source_posted_at, ''), first_seen_at, date_found) DESC,
+            CASE WHEN freshness_confidence = 'source_posted_date' THEN 0 ELSE 1 END ASC,
             first_seen_at DESC,
             id DESC
     """
@@ -600,7 +616,7 @@ def review_queue(path: Path | str = DB_PATH, include_stale: bool = False) -> dic
     rows = [job for job in list_jobs(path=path) if active_for_review(job, include_stale)]
     return {
         "new_today": [job for job in rows if unreviewed(job) and (job.get("first_seen_at") or job.get("date_found")) == today],
-        "fresh_high_match": [job for job in rows if unreviewed(job) and int(job.get("match_score") or 0) >= 75 and not job.get("is_stale")],
+        "fresh_high_match": [job for job in rows if unreviewed(job) and int(job.get("match_score") or 0) >= 70 and not job.get("is_stale")],
         "closing_soon": [job for job in rows if (close_days(job) is not None and 0 <= close_days(job) <= 7) and job.get("status") not in {"applied", "skipped"}],
         "needs_review": [job for job in rows if unreviewed(job)],
         "packet_ready": [job for job in rows if job.get("status") in {"materials_generated", "ready_to_apply"}],

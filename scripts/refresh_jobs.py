@@ -25,7 +25,7 @@ if __name__ == "__main__":
     print(f"- closing soon: {result['closing_soon_jobs']}")
     print(f"- packets ready: {result['packets_ready']}")
     print(f"- applied follow-ups needed: {result['applied_followups_needed']}")
-    print(f"- high matches above 75: {result['high_matches']}")
+    print(f"- strong/excellent matches 70+: {result['high_matches']}")
     if result["errors"]:
         print("- source errors:")
         for source, message in result["errors"].items():

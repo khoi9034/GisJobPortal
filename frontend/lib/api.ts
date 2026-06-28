@@ -46,6 +46,10 @@ export type Job = {
   scoring_breakdown: Record<string, number>;
   fit_reasons: string[];
   keyword_matches: string[];
+  positive_matches?: string[];
+  penalty_matches?: string[];
+  score_reason?: string;
+  score_band?: string;
   recommended_resume_angle: string;
   application_packet_dir: string;
   document_checklist: DocumentChecklist;
@@ -185,6 +189,10 @@ const demoJobs: Job[] = [
     },
     fit_reasons: ["Strong ArcGIS and web GIS overlap", "Matches parcel, zoning, and land use experience", "Fits county/city public GIS workflows"],
     keyword_matches: ["ArcGIS", "ArcGIS Enterprise", "ArcGIS Online", "ArcGIS Pro", "GIS", "Python", "SQL", "parcels", "planning", "zoning"],
+    positive_matches: ["GIS Analyst", "ArcGIS", "ArcGIS Enterprise", "ArcGIS Online", "ArcGIS Pro", "GIS", "Python", "SQL", "parcels", "planning", "zoning"],
+    penalty_matches: [],
+    score_reason: "Strong fit; title is directly GIS/planning aligned; GIS/ArcGIS language matched; Python/SQL/automation matched.",
+    score_band: "strong fit",
     recommended_resume_angle: "Lead with Cabarrus County GIS, parcels, zoning, public data, and Cabarrus FutureScape.",
     application_packet_dir: "",
     document_checklist: {
@@ -242,6 +250,10 @@ const demoJobs: Job[] = [
     scoring_breakdown: {},
     fit_reasons: ["Good North Carolina or remote location fit", "Uses Python, SQL, or automation skills"],
     keyword_matches: ["ArcGIS Pro", "GIS", "Python", "planning", "transportation", "web GIS"],
+    positive_matches: ["Transportation Planning Analyst", "ArcGIS Pro", "GIS", "Python", "planning", "transportation", "web GIS"],
+    penalty_matches: [],
+    score_reason: "Strong fit; title is directly GIS/planning aligned; GIS/ArcGIS language matched; Python/SQL/automation matched.",
+    score_band: "strong fit",
     recommended_resume_angle: "Lead with GIS automation, Python/SQL, GeoPandas, and data workflow experience.",
     application_packet_dir: "",
     document_checklist: { resume_required: true, portfolio_link_included: true },
@@ -251,9 +263,9 @@ const demoJobs: Job[] = [
 function demoStats(): Stats {
   return {
     total: demoJobs.length,
-    high_matches: demoJobs.filter((job) => job.match_score >= 75).length,
-    medium_matches: demoJobs.filter((job) => job.match_score >= 50 && job.match_score < 75).length,
-    low_matches: demoJobs.filter((job) => job.match_score < 50).length,
+    high_matches: demoJobs.filter((job) => job.match_score >= 70).length,
+    medium_matches: demoJobs.filter((job) => job.match_score >= 55 && job.match_score < 70).length,
+    low_matches: demoJobs.filter((job) => job.match_score < 55).length,
     by_status: demoJobs.reduce<Record<string, number>>((rows, job) => {
       rows[job.status] = (rows[job.status] || 0) + 1;
       return rows;
@@ -278,7 +290,7 @@ function demoPacket(job: Job): ApplicationPacket {
 function demoReviewQueue(): ReviewQueue {
   return {
     new_today: [],
-    fresh_high_match: demoJobs.filter((job) => job.match_score >= 75 && job.review_status === "unreviewed"),
+    fresh_high_match: demoJobs.filter((job) => job.match_score >= 70 && job.review_status === "unreviewed"),
     closing_soon: demoJobs.filter((job) => (job.close_days_remaining ?? 99) <= 7),
     needs_review: demoJobs.filter((job) => job.review_status === "unreviewed"),
     packet_ready: demoJobs.filter((job) => ["materials_generated", "ready_to_apply"].includes(job.status)),

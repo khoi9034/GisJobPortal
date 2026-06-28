@@ -7,7 +7,7 @@ from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import qa_application_packet, setup_usajobs, source_toggle
+from scripts import analyze_job_matches, qa_application_packet, setup_usajobs, source_toggle
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -25,7 +25,7 @@ from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
 from backend.app.paths import api_env, cors_origins, database_path
 from backend.app.profile import load_profile
-from backend.app.scoring import score_job
+from backend.app.scoring import score_band, score_job
 from backend.app.sources import load_search_profiles, load_sources
 from backend.app.source_validation import validate_source
 
@@ -50,6 +50,28 @@ class MvpTests(unittest.TestCase):
         self.assertGreaterEqual(scored["match_score"], 75)
         self.assertIn("arcgis_relevance", scored["scoring_breakdown"])
         self.assertIn("ArcGIS", scored["keyword_matches"])
+        for field in ["positive_matches", "penalty_matches", "score_reason", "score_band", "recommended_resume_angle"]:
+            self.assertIn(field, scored)
+
+    def test_gis_analyst_title_scores_strong_when_description_matches(self):
+        scored = score_job({**self.job, "title": "GIS Analyst", "description": "ArcGIS Enterprise, geospatial data, spatial analysis, Python automation, SQL, web GIS, parcels, zoning, and planning."}, self.profile)
+        self.assertGreaterEqual(scored["match_score"], 70)
+        self.assertIn(scored["score_band"], {"strong fit", "excellent fit"})
+        self.assertIn("gis analyst", scored["positive_matches"])
+
+    def test_senior_or_principal_jobs_are_penalized(self):
+        junior = score_job({**self.job, "title": "GIS Analyst"}, self.profile)
+        senior = score_job({**self.job, "title": "Senior GIS Manager", "requirements": self.job["requirements"] + " 10+ years required."}, self.profile)
+        self.assertLess(senior["match_score"], junior["match_score"])
+        self.assertIn("manager", senior["penalty_matches"])
+        self.assertIn("7+ years", senior["penalty_matches"])
+
+    def test_score_band_labels(self):
+        self.assertEqual(score_band(90), "excellent fit")
+        self.assertEqual(score_band(70), "strong fit")
+        self.assertEqual(score_band(55), "possible fit")
+        self.assertEqual(score_band(40), "weak/maybe")
+        self.assertEqual(score_band(39), "low fit")
 
     def test_duplicate_detection_uses_company_title_location_url(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -346,6 +368,23 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(job["close_days_remaining"], 0)
         self.assertIn(job_id, {item["id"] for item in queue["closing_soon"]})
 
+    def test_closed_jobs_do_not_appear_as_active_high_priority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/closed-high", "source_closes_at": "2000-01-01", "match_score": 95}, path)
+            active_ids = {job["id"] for job in db.list_jobs(path=path, active_only=True)}
+            queue_ids = {job["id"] for group in db.review_queue(path).values() for job in group}
+        self.assertNotIn(job_id, active_ids)
+        self.assertNotIn(job_id, queue_ids)
+
+    def test_fresh_strong_jobs_rank_above_weak_closing_soon_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            strong_id, _ = db.insert_job({**self.job, "source_url": "https://example.com/strong-fresh", "date_posted": db.now_iso(), "match_score": 78}, path)
+            weak_id, _ = db.insert_job({**self.job, "title": "Weak Closing Job", "source_url": "https://example.com/weak-closing", "source_closes_at": db.now_iso(), "match_score": 42}, path)
+            ordered = [job["id"] for job in db.review_queue(path)["needs_review"]]
+        self.assertLess(ordered.index(strong_id), ordered.index(weak_id))
+
     def test_review_queue_hides_stale_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
@@ -412,7 +451,16 @@ class MvpTests(unittest.TestCase):
             {**self.job, "title": "Fresh Medium", "match_score": 70, "posting_age_days": 0, "review_status": "unreviewed"},
         ]
         ordered = reports.top_recommended_jobs(rows)
-        self.assertEqual([job["title"] for job in ordered], ["Closing Soon", "High Match", "Fresh Medium"])
+        self.assertEqual([job["title"] for job in ordered], ["High Match", "Fresh Medium", "Closing Soon"])
+
+    def test_analyze_job_matches_runs_without_secrets(self):
+        rows = [{**self.job, **score_job(self.job, self.profile), "id": 1, "source": "USAJobs API", "status": "new", "is_stale": False, "is_closed_or_missing": False, "posting_age_days": 1, "close_days_remaining": 3}]
+        output = io.StringIO()
+        with patch.dict(os.environ, {"USAJOBS_AUTHORIZATION_KEY": "do-not-print-me"}, clear=False), patch("scripts.analyze_job_matches.db.list_jobs", return_value=rows), redirect_stdout(output):
+            self.assertEqual(analyze_job_matches.main(), 0)
+        text = output.getvalue()
+        self.assertIn("score distribution", text)
+        self.assertNotIn("do-not-print-me", text)
 
     def test_runtime_reports_and_logs_are_ignored(self):
         patterns = Path(".gitignore").read_text(encoding="utf-8")

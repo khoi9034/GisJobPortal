@@ -1,7 +1,7 @@
 profiles:
   gis_analyst_nc:
     enabled: true
-    keywords: [GIS Analyst, GIS Technician, Geospatial Analyst, Spatial Analyst, ArcGIS, ArcGIS Enterprise, ArcPy, Python GIS, parcels, utilities, public works]
+    keywords: [GIS Analyst, GIS Technician, Geospatial Analyst, Spatial Analyst, Cartographer, Geographic Information Systems, Geography GIS, ArcGIS, ArcGIS Enterprise, ArcPy, Python GIS, parcels, utilities, public works]
     locations: [Concord NC, Charlotte NC, Cabarrus County NC, Mecklenburg County NC, North Carolina]
     max_age_days: 30
     include_remote: true
@@ -9,7 +9,7 @@ profiles:
     notes: Primary local GIS analyst and technician searches.
   planning_gis_nc:
     enabled: true
-    keywords: [Urban Planning Analyst, Planning Technician, Land Use Analyst, Transportation Planning Analyst, zoning, parcels, planning, public works, transportation, ArcGIS]
+    keywords: [Urban Planning Analyst, Planning Technician, Land Use Analyst, Community Planner, Transportation Planning Analyst, Urban Planning GIS, Transportation Planning GIS, zoning, parcels, planning, public works, transportation, ArcGIS]
     locations: [Concord NC, Charlotte NC, Cabarrus County NC, Wake County NC, North Carolina]
     max_age_days: 30
     include_remote: true
@@ -17,7 +17,7 @@ profiles:
     notes: Planning, land use, zoning, and transportation GIS roles.
   geospatial_entry_level:
     enabled: true
-    keywords: [GIS Analyst, GIS Technician, Geospatial Analyst, Spatial Analyst, ArcGIS, ArcPy, Python GIS]
+    keywords: [GIS Analyst, GIS Technician, Geospatial Analyst, Spatial Analyst, Geographic Information Systems, Recent Graduate GIS, Pathways GIS, ArcGIS, ArcPy, Python GIS]
     locations: [North Carolina, Remote, Hybrid]
     max_age_days: 30
     include_remote: true
@@ -25,7 +25,7 @@ profiles:
     notes: Entry-level geospatial roles with GIS tooling.
   consulting_gis:
     enabled: true
-    keywords: [GIS Analyst, Geospatial Analyst, Spatial Analyst, ArcGIS, Python GIS, transportation, utilities, planning, parcels]
+    keywords: [GIS Analyst, Geospatial Analyst, Spatial Analyst, Data Analyst GIS, ArcGIS, Python GIS, transportation, utilities, planning, parcels]
     locations: [Charlotte NC, Raleigh NC, North Carolina, Remote]
     max_age_days: 30
     include_remote: true
@@ -33,7 +33,7 @@ profiles:
     notes: Consulting firms with GIS, planning, transportation, utilities, and location intelligence work.
   remote_gis:
     enabled: true
-    keywords: [GIS Analyst, Geospatial Analyst, Spatial Analyst, ArcGIS, ArcGIS Enterprise, Python GIS]
+    keywords: [GIS Analyst, Geospatial Analyst, Spatial Analyst, Data Analyst GIS, ArcGIS, ArcGIS Enterprise, Python GIS]
     locations: [Remote]
     max_age_days: 21
     include_remote: true
@@ -41,7 +41,7 @@ profiles:
     notes: Remote GIS and geospatial analyst searches.
   federal_gis:
     enabled: false
-    keywords: [GIS Analyst, GIS Technician, Geospatial Analyst, Spatial Analyst, ArcGIS, Python GIS, public works, utilities, transportation]
+    keywords: [GIS Analyst, GIS Technician, Geospatial Analyst, Spatial Analyst, Cartographer, Geographic Information Systems, Geography GIS, Community Planner, Recent Graduate GIS, Pathways GIS, ArcGIS, Python GIS, public works, utilities, transportation]
     locations: [North Carolina, Remote, United States]
     max_age_days: 30
     include_remote: true

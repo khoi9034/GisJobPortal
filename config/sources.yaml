@@ -16,12 +16,19 @@ sources:
     results_per_page: 10
     search_terms:
       - GIS Analyst
-      - GIS Technician
       - Geospatial Analyst
-      - Urban Planning Analyst
-      - Planning Technician
+      - GIS Technician
+      - Cartographer
+      - Geographic Information Systems
+      - Geography GIS
       - Spatial Analyst
-      - Transportation Planning Analyst
+      - Data Analyst GIS
+      - Urban Planning GIS
+      - Community Planner
+      - Transportation Planning GIS
+      - Recent Graduate GIS
+      - Pathways GIS
+    locations: []
     posted_date_supported: true
     close_date_supported: true
     updated_date_supported: false

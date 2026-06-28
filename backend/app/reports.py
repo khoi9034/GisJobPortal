@@ -28,8 +28,8 @@ def recommend_reason(job: dict[str, Any]) -> str:
     days = close_days(job)
     if days is not None and 0 <= days <= 7:
         return f"Closing in {days} days"
-    if int(job.get("match_score") or 0) >= 75:
-        return "High match score"
+    if int(job.get("match_score") or 0) >= 70:
+        return job.get("score_band") or "Strong match score"
     if (job.get("posting_age_days") or 99) <= 14:
         return "Fresh posting"
     return "Needs review"
@@ -37,7 +37,7 @@ def recommend_reason(job: dict[str, Any]) -> str:
 
 def top_recommended_jobs(jobs: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
     rows = [job for job in jobs if not job.get("is_closed_or_missing") and not job.get("is_stale") and (job.get("review_status") or "unreviewed") == "unreviewed"]
-    return sorted(rows, key=lambda job: (close_days(job) if close_days(job) is not None and close_days(job) >= 0 else 9999, -int(job.get("match_score") or 0), int(job.get("posting_age_days") or 9999)))[:limit]
+    return sorted(rows, key=lambda job: (-int(job.get("match_score") or 0), close_days(job) if close_days(job) is not None and close_days(job) >= 0 else 9999, int(job.get("posting_age_days") or 9999)))[:limit]
 
 
 def summary_counts(result: dict[str, Any]) -> dict[str, int]:
@@ -96,6 +96,7 @@ def write_daily_report(result: dict[str, Any], jobs: list[dict[str, Any]], repor
                 f"{index}. {job.get('title')} - {job.get('company')}",
                 f"   - Location: {job.get('location')}",
                 f"   - Match score: {job.get('match_score')}",
+                f"   - Score band: {job.get('score_band') or 'unknown'}",
                 f"   - Posted date: {job.get('source_posted_at') or job.get('date_posted') or 'unknown'}",
                 f"   - Close date: {job.get('source_closes_at') or 'unknown'}",
                 f"   - Days until close: {close_days(job) if close_days(job) is not None else 'unknown'}",

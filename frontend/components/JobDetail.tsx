@@ -14,6 +14,15 @@ function isClosingSoon(job: Job) {
   return days !== null && days >= 0 && days <= 7;
 }
 
+function scoreBand(job: Job) {
+  if (job.score_band) return job.score_band;
+  if (job.match_score >= 85) return "excellent fit";
+  if (job.match_score >= 70) return "strong fit";
+  if (job.match_score >= 55) return "possible fit";
+  if (job.match_score >= 40) return "weak/maybe";
+  return "low fit";
+}
+
 export default function JobDetail({ id }: { id: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [packet, setPacket] = useState<ApplicationPacket | null>(null);
@@ -106,7 +115,7 @@ export default function JobDetail({ id }: { id: string }) {
             {isClosingSoon(job) && <span className="chip warning">closing soon</span>}
           </div>
         </div>
-        <div className="score"><strong>{job.match_score}</strong><span>match</span></div>
+        <div className="score"><strong>{job.match_score}</strong><span>{scoreBand(job)}</span></div>
       </div>
       <div className="toolbar">
         <Link className="button" href="/">Back</Link>
@@ -145,11 +154,14 @@ export default function JobDetail({ id }: { id: string }) {
           <Checklist checklist={checklist} setChecklist={setChecklist} />
           <button className="button" onClick={saveChecklist}>Save Checklist</button>
           <h3>Scoring Breakdown</h3>
+          <p>{job.score_reason || "Score explanation will appear after refresh/rescore."}</p>
           {Object.entries(job.scoring_breakdown || {}).map(([key, value]) => (
             <p key={key}><strong>{key.replaceAll("_", " ")}</strong>: {value}</p>
           ))}
-          <h3>Keyword Matches</h3>
-          <div className="chips">{job.keyword_matches.map((item) => <span className="chip green" key={item}>{item}</span>)}</div>
+          <h3>Positive Matches</h3>
+          <div className="chips">{(job.positive_matches || job.keyword_matches || []).map((item) => <span className="chip green" key={item}>{item}</span>)}</div>
+          <h3>Penalty Matches</h3>
+          <div className="chips">{job.penalty_matches?.length ? job.penalty_matches.map((item) => <span className="chip red" key={item}>{item}</span>) : <span className="muted">None flagged.</span>}</div>
           <h3>Missing Skills</h3>
           <div className="chips">{job.missing_skills.length ? job.missing_skills.map((item) => <span className="chip red" key={item}>{item}</span>) : <span className="muted">None flagged.</span>}</div>
           <h3>Resume Angle</h3>

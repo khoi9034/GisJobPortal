@@ -64,8 +64,8 @@ def quality_checks(job: dict[str, Any], packet: dict[str, Any], profile: dict[st
         warnings.append("follow-up email is not shorter than cover letter")
     if bool(checklist.get("transcript_required")) != bool(expected_checklist.get("transcript_required")):
         warnings.append("transcript checklist does not match detected requirement")
-    if int(job.get("match_score") or 0) < 75:
-        warnings.append("no USAJobs match above 75 found; using best current USAJobs job")
+    if int(job.get("match_score") or 0) < 70:
+        warnings.append("no USAJobs match above 70 found; using best current USAJobs job")
     return warnings
 
 
