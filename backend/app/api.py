@@ -346,10 +346,22 @@ def overview() -> dict[str, Any]:
 @app.get("/sources")
 def sources() -> list[dict[str, Any]]:
     configured = load_sources()
+    try:
+        saved = {source["name"]: source for source in db.list_sources()}
+    except Exception:
+        saved = {}
+    rows = []
     for source in configured:
-        db.upsert_source(source)
-    saved = {source["name"]: source for source in db.list_sources()}
-    return [saved.get(source["name"], source) for source in configured]
+        row = {**source, **saved.get(source["name"], {})}
+        row.setdefault("supports_posted_date", bool(row.get("posted_date_supported", False)))
+        row.setdefault("supports_updated_date", bool(row.get("updated_date_supported", False)))
+        row.setdefault("supports_close_date", bool(row.get("close_date_supported", False)))
+        row.setdefault("freshness_confidence_default", "first_seen_only" if row.get("first_seen_only", True) else "source_posted_date")
+        row.setdefault("last_checked_at", row.get("last_checked", ""))
+        row.setdefault("last_error", row.get("errors_last_run", ""))
+        row.setdefault("validation_status", "disabled" if not row.get("enabled") else row.get("status", "unknown"))
+        rows.append(row)
+    return rows
 
 
 @app.get("/sources/validate")

@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from scripts import analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -232,6 +232,13 @@ class MvpTests(unittest.TestCase):
         for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "last_checked_at", "last_error"]:
             self.assertIn(field, rows[0])
 
+    def test_sources_endpoint_returns_config_when_db_status_unavailable(self):
+        with patch("backend.app.api.db.list_sources", side_effect=RuntimeError("db unavailable")):
+            rows = sources_endpoint()
+        self.assertTrue(rows)
+        self.assertIn("name", rows[0])
+        self.assertIn("supports_posted_date", rows[0])
+
     def test_validate_disabled_source_does_not_call_network(self):
         source = {"name": "Disabled Greenhouse", "type": "greenhouse", "url": "https://boards.greenhouse.io/example", "enabled": False}
         with patch("backend.app.source_validation.collect_from_source") as collector:
@@ -362,6 +369,8 @@ class MvpTests(unittest.TestCase):
         for label in ["Demo Mode", "Local Backend", "Live API"]:
             self.assertIn(label, api_text)
         self.assertIn("dataModeLabel()", dashboard_text)
+        self.assertIn("Promise.allSettled", dashboard_text)
+        self.assertIn("Live API connected, but no jobs returned for this filter", dashboard_text)
 
     def test_check_frontend_data_mode_does_not_expose_secrets(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
@@ -389,6 +398,24 @@ class MvpTests(unittest.TestCase):
         self.assertIn("database_runtime_type: postgres", text)
         self.assertIn("production blockers: none", text)
         self.assertIn("production ready: yes", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_live_frontend_data_diagnostic_runs_without_secrets(self):
+        responses = {
+            "/deployment/status": {"job_count": 2, "source_count": 2},
+            "/jobs": [{"source": "USAJobs API"}, {"source": "Woolpert Careers"}],
+            "/sources": [{"name": "USAJobs API"}, {"name": "Woolpert Careers"}],
+            "/stats/overview": {"total": 2},
+            "/review/queue": {"needs_review": [{"id": 1}], "fresh_high_match": [{"id": 2}]},
+            "/application/board": {"ready_to_apply": [], "applied": []},
+            "/reports/latest": {"exists": False, "summary": {}},
+        }
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_live_frontend_data.fetch_json", side_effect=lambda _base, path: responses[path]), redirect_stdout(output):
+            self.assertEqual(check_live_frontend_data.main(["--url", "https://backend.example.com"]), 0)
+        text = output.getvalue()
+        self.assertIn("jobs: 2", text)
+        self.assertIn("sources: 2", text)
         self.assertNotIn("do-not-print-me", text)
 
     def test_connect_render_backend_script_is_safe_static(self):

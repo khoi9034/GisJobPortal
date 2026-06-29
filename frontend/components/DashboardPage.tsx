@@ -202,7 +202,7 @@ export default function DashboardPage({ view }: { view: View }) {
   const [message, setMessage] = useState("");
 
   async function load() {
-    const [jobRows, overview, sourceRows, boardRows, reportRow, profileRow, aiRow] = await Promise.all([
+    const [jobRows, overview, sourceRows, boardRows, reportRow, profileRow, aiRow] = await Promise.allSettled([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
       api<Source[]>("/sources"),
@@ -211,13 +211,15 @@ export default function DashboardPage({ view }: { view: View }) {
       api<any>("/profile"),
       api<AiStatus>("/ai/status"),
     ]);
-    setJobs(jobRows);
-    setStats(overview);
-    setSources(sourceRows);
-    setApplicationBoard(boardRows);
-    setReport(reportRow);
-    setProfile(profileRow);
-    setAiStatus(aiRow);
+    const failures: string[] = [];
+    if (jobRows.status === "fulfilled") setJobs(jobRows.value); else failures.push(`/jobs: ${jobRows.reason}`);
+    if (overview.status === "fulfilled") setStats(overview.value); else failures.push(`/stats/overview: ${overview.reason}`);
+    if (sourceRows.status === "fulfilled") setSources(sourceRows.value); else failures.push(`/sources: ${sourceRows.reason}`);
+    if (boardRows.status === "fulfilled") setApplicationBoard(boardRows.value); else failures.push(`/application/board: ${boardRows.reason}`);
+    if (reportRow.status === "fulfilled") setReport(reportRow.value); else failures.push(`/reports/latest: ${reportRow.reason}`);
+    if (profileRow.status === "fulfilled") setProfile(profileRow.value); else failures.push(`/profile: ${profileRow.reason}`);
+    if (aiRow.status === "fulfilled") setAiStatus(aiRow.value); else failures.push(`/ai/status: ${aiRow.reason}`);
+    if (failures.length) setMessage(`Live API connected, but ${failures.join("; ")}`);
   }
 
   useEffect(() => {
@@ -462,7 +464,13 @@ export default function DashboardPage({ view }: { view: View }) {
             onCopy={copy}
           />
         ))}
-        {!visibleJobs.length && <p className="muted">No jobs in this view yet.</p>}
+        {!visibleJobs.length && (
+          <p className="muted">
+            {dataModeLabel() === "Live API" && (jobs.length || stats?.total)
+              ? `Live API connected, but no jobs returned for this filter. Backend reports ${stats?.total ?? jobs.length} jobs. Try Include stale or Refresh jobs.`
+              : "No jobs in this view yet."}
+          </p>
+        )}
       </div>
     </Shell>
   );
@@ -594,7 +602,7 @@ function DailyDigest({ report }: { report: DailyReport | null }) {
       </div>
       <details>
         <summary className="button">View Latest Report</summary>
-        <pre>{report?.text || "No daily review report has been generated yet."}</pre>
+        <pre>{report?.text || (dataModeLabel() === "Live API" ? "No hosted report generated yet. Live stats and review queue counts are still available." : "No daily review report has been generated yet.")}</pre>
       </details>
     </section>
   );
