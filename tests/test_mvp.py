@@ -401,9 +401,20 @@ class MvpTests(unittest.TestCase):
         self.assertNotRegex(text, r"rnd_[A-Za-z0-9]|Authorization = \"Bearer [^$]")
         self.assertNotRegex(text, r"(Set-Content|Out-File|Add-Content).*(ApiKey|SecureKey|Render API key)")
 
+    def test_connect_vercel_live_api_script_is_safe_static(self):
+        text = Path("scripts/connect_vercel_live_api.ps1").read_text(encoding="utf-8")
+        self.assertIn("prj_7rRCF8pTAJBrxMQZtsjBgvNYiKGI", text)
+        self.assertIn("team_NnrpDjazbXYZNE9Sqb9iTIKv", text)
+        self.assertIn("https://gisjobportal.onrender.com", text)
+        self.assertIn("Read-Host \"Paste Vercel token, then press Enter:\" -AsSecureString", text)
+        self.assertIn("Authorization = \"Bearer $env:VERCEL_TOKEN\"", text)
+        self.assertNotRegex(text, r"vcp_[A-Za-z0-9]|Authorization = \"Bearer [^$]")
+        self.assertNotRegex(text, r"(Set-Content|Out-File|Add-Content).*(Token|VERCEL_TOKEN|Vercel token)")
+
     def test_render_docs_do_not_contain_secret_values(self):
         combined = "\n".join(path.read_text(encoding="utf-8") for path in [Path("README.md"), *Path("docs").glob("*.md")])
         self.assertIn("connect_render_backend.ps1", combined)
+        self.assertIn("connect_vercel_live_api.ps1", combined)
         self.assertNotRegex(combined, r"rnd_[A-Za-z0-9]|vcp_|apiapi|sk-[A-Za-z0-9]")
 
     def test_check_ports_runs_without_secrets(self):

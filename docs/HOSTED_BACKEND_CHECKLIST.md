@@ -104,7 +104,17 @@ NEXT_PUBLIC_API_MODE=api
 NEXT_PUBLIC_API_BASE_URL=<hosted backend URL>
 ```
 
-11. Redeploy Vercel.
-12. Confirm the dashboard badge says `Live API` and real jobs load.
+## Connecting Vercel to the Live API
+
+After the hosted smoke check says `production ready: yes`, run the Vercel helper from the repo root:
+
+```powershell
+cd C:\Dev\GisJobPortal
+.\scripts\connect_vercel_live_api.ps1
+```
+
+The helper prompts locally for your Vercel token with `Read-Host -AsSecureString`. It does not save the token, write it to `.env`, or commit it. It checks `https://gisjobportal.onrender.com`, sets `NEXT_PUBLIC_API_MODE=api` and `NEXT_PUBLIC_API_BASE_URL=https://gisjobportal.onrender.com` for Production, Preview, and Development, then triggers a production redeploy.
+
+Expected result: the Vercel dashboard badge says `Live API`, not `Demo Mode`, and real jobs load from `https://gisjobportal.onrender.com`.
 
 Do not upload private resume/transcript files, generated packets, `.env` files, or local SQLite database files.
