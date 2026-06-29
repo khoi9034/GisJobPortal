@@ -8,6 +8,7 @@ from urllib import error, request
 
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN_PATH = ROOT / "runtime" / "secrets" / "admin_refresh_token.local.txt"
+REFRESH_TIMEOUT_SECONDS = 600
 
 
 def admin_refresh(base_url: str, token: str) -> dict:
@@ -17,7 +18,7 @@ def admin_refresh(base_url: str, token: str) -> dict:
         headers={"Content-Type": "application/json", "X-Admin-Refresh-Token": token},
         method="POST",
     )
-    with request.urlopen(req, timeout=120) as response:
+    with request.urlopen(req, timeout=REFRESH_TIMEOUT_SECONDS) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

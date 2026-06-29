@@ -8,6 +8,7 @@ $BackendUrl = "https://gisjobportal.onrender.com"
 $LiveSite = "https://gis-job-portal.vercel.app"
 $RenderApiBase = "https://api.render.com/v1"
 $AdminTokenPath = Join-Path $RepoRoot "runtime\secrets\admin_refresh_token.local.txt"
+$UsedEnvRenderApiKey = $false
 $RequiredEnvVars = @(
   "DATABASE_URL",
   "API_ENV",
@@ -22,7 +23,9 @@ trap {
   Write-Host ""
   Write-Host "Hosted refresh setup failed: $($_.Exception.Message)"
   Write-Host "No Render API key was saved."
-  $null = Read-Host "Press Enter to close"
+  if (-not $script:UsedEnvRenderApiKey) {
+    $null = Read-Host "Press Enter to close"
+  }
   exit 1
 }
 
@@ -43,8 +46,24 @@ function Convert-ToPlainText([securestring]$SecureValue) {
 
 function New-AdminToken {
   $Bytes = [byte[]]::new(48)
-  [Security.Cryptography.RandomNumberGenerator]::Fill($Bytes)
+  $Rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $Rng.GetBytes($Bytes)
+  } finally {
+    $Rng.Dispose()
+  }
   [Convert]::ToBase64String($Bytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
+}
+
+function Read-RenderApiKey {
+  if (-not [string]::IsNullOrWhiteSpace($env:RENDER_API_KEY)) {
+    $script:UsedEnvRenderApiKey = $true
+    $script:RenderApiKey = $env:RENDER_API_KEY
+    Write-Host "Using Render API key from local RENDER_API_KEY environment variable."
+    return
+  }
+  $script:SecureKey = Read-Host "Paste Render API key, then press Enter:" -AsSecureString
+  $script:RenderApiKey = Convert-ToPlainText $script:SecureKey
 }
 
 function Redact-Secrets([string]$Text) {
@@ -107,8 +126,8 @@ function Invoke-RenderApi([string]$Method, [string]$Path, $Body = $null) {
   }
 }
 
-function Invoke-PublicJson([string]$Path, [hashtable]$Headers = @{}, [string]$Method = "Get") {
-  Invoke-RestMethod -Method $Method -Uri "$BackendUrl$Path" -Headers $Headers -TimeoutSec 120
+function Invoke-PublicJson([string]$Path, [hashtable]$Headers = @{}, [string]$Method = "Get", [int]$TimeoutSec = 120) {
+  Invoke-RestMethod -Method $Method -Uri "$BackendUrl$Path" -Headers $Headers -TimeoutSec $TimeoutSec
 }
 
 function Get-EnvVarNames($Response) {
@@ -142,11 +161,23 @@ function Wait-BackendReady {
   return $false
 }
 
+function Invoke-AdminRefreshWithRetry {
+  for ($Attempt = 1; $Attempt -le 12; $Attempt++) {
+    try {
+      Write-Host "- refresh attempt ${Attempt}"
+      return Invoke-PublicJson "/admin/refresh-jobs" @{ "X-Admin-Refresh-Token" = $script:AdminToken; "Content-Type" = "application/json" } "Post" 600
+    } catch {
+      if ($Attempt -eq 12) { throw }
+      Write-Host "- refresh unavailable, retrying"
+      Start-Sleep -Seconds 20
+    }
+  }
+}
+
 Write-Host "Repo: $RepoRoot"
 Write-Host "Render service id: $ServiceId"
 Write-Host "Backend URL: $BackendUrl"
-$script:SecureKey = Read-Host "Paste Render API key, then press Enter:" -AsSecureString
-$script:RenderApiKey = Convert-ToPlainText $script:SecureKey
+Read-RenderApiKey
 
 try {
   Write-Host ""
@@ -186,7 +217,7 @@ try {
 
   Write-Host ""
   Write-Host "Running hosted admin refresh"
-  $Refresh = Invoke-PublicJson "/admin/refresh-jobs" @{ "X-Admin-Refresh-Token" = $script:AdminToken; "Content-Type" = "application/json" } "Post"
+  $Refresh = Invoke-AdminRefreshWithRetry
   foreach ($Key in @("sources_checked", "jobs_collected", "inserted", "duplicates_updated", "stale_jobs", "strong_excellent_matches", "report_generated")) {
     Write-Host "- ${Key}: $($Refresh.$Key)"
   }
@@ -218,4 +249,6 @@ try {
 }
 
 Write-Host ""
-$null = Read-Host "Done. Press Enter to close"
+if (-not $script:UsedEnvRenderApiKey) {
+  $null = Read-Host "Done. Press Enter to close"
+}

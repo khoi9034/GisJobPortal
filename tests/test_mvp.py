@@ -417,6 +417,7 @@ class MvpTests(unittest.TestCase):
         text = Path("scripts/setup_hosted_refresh.ps1").read_text(encoding="utf-8")
         self.assertIn("srv-d90stu3sq97s739mpta0", text)
         self.assertIn("Paste Render API key, then press Enter:", text)
+        self.assertIn("RENDER_API_KEY", text)
         self.assertIn("ADMIN_REFRESH_TOKEN", text)
         self.assertIn("runtime\\secrets\\admin_refresh_token.local.txt", text)
         self.assertIn("RandomNumberGenerator", text)

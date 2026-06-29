@@ -138,7 +138,7 @@ cd C:\Dev\GisJobPortal
 .\scripts\setup_hosted_refresh.ps1
 ```
 
-The setup script prompts locally for the Render API key, generates `ADMIN_REFRESH_TOKEN`, sets it on Render through the Render API, stores the token only in ignored `runtime/secrets/admin_refresh_token.local.txt`, triggers a Render deploy, runs hosted refresh, and verifies `/reports/latest`.
+The setup script uses local `RENDER_API_KEY` if already set, otherwise prompts locally for the Render API key. It generates `ADMIN_REFRESH_TOKEN`, sets it on Render through the Render API, stores the token only in ignored `runtime/secrets/admin_refresh_token.local.txt`, triggers a Render deploy, runs hosted refresh, and verifies `/reports/latest`.
 
 Run a hosted refresh from your local machine:
 
