@@ -161,6 +161,25 @@ python scripts\admin_refresh_hosted.py --url https://gisjobportal.onrender.com
 
 The refresh script uses the ignored local token file if present, otherwise prompts locally. The app never auto-applies, logs into portals, or sends emails.
 
+## Automated Daily Refresh
+
+GitHub Actions runs the hosted refresh daily at `12:00 UTC` and can also be run manually from GitHub -> Actions -> Hosted Refresh -> Run workflow.
+
+Required repository secret:
+
+```text
+ADMIN_REFRESH_TOKEN
+```
+
+The value should match ignored `runtime/secrets/admin_refresh_token.local.txt`. To set it with GitHub CLI:
+
+```powershell
+cd C:\Dev\GisJobPortal
+.\scripts\setup_github_refresh_secret.ps1
+```
+
+The workflow only calls the hosted refresh endpoint. It never applies to jobs, logs into portals, sends emails, or exposes the token.
+
 Freshness defaults live in `config/application_rules.yaml`:
 
 ```yaml

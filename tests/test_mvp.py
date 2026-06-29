@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -422,6 +422,43 @@ class MvpTests(unittest.TestCase):
         self.assertIn("runtime\\secrets\\admin_refresh_token.local.txt", text)
         self.assertIn("RandomNumberGenerator", text)
         self.assertNotRegex(text, r"rnd_[A-Za-z0-9]|Authorization = \"Bearer [^$]|ADMIN_REFRESH_TOKEN\\s*=\\s*['\"][A-Za-z0-9_-]{20,}")
+
+    def test_hosted_refresh_workflow_is_scheduled_and_secret_safe(self):
+        text = Path(".github/workflows/hosted-refresh.yml").read_text(encoding="utf-8")
+        self.assertIn("cron: \"0 12 * * *\"", text)
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("secrets.ADMIN_REFRESH_TOKEN", text)
+        self.assertIn("/admin/refresh-jobs", text)
+        self.assertIn("X-Admin-Refresh-Token", text)
+        self.assertNotRegex(text, r"rnd_[A-Za-z0-9]|vcp_[A-Za-z0-9]|ADMIN_REFRESH_TOKEN:\\s*[A-Za-z0-9_-]{20,}")
+
+    def test_setup_github_refresh_secret_script_is_safe_static(self):
+        text = Path("scripts/setup_github_refresh_secret.ps1").read_text(encoding="utf-8")
+        self.assertIn("gh secret set", text)
+        self.assertIn("--body-file -", text)
+        self.assertIn("runtime\\secrets\\admin_refresh_token.local.txt", text)
+        self.assertIn("Read-Host \"Paste GitHub token, then press Enter\" -AsSecureString", text)
+        self.assertNotRegex(text, r"ghp_[A-Za-z0-9]|github_pat_[A-Za-z0-9_]|ADMIN_REFRESH_TOKEN\\s*=\\s*['\"][A-Za-z0-9_-]{20,}")
+        self.assertNotRegex(text, r"(Set-Content|Out-File|Add-Content).*(AdminToken|GitHub token|ADMIN_REFRESH_TOKEN)")
+
+    def test_runtime_secrets_remain_ignored(self):
+        patterns = Path(".gitignore").read_text(encoding="utf-8")
+        self.assertIn("runtime/secrets/", patterns)
+        self.assertIn("runtime/secrets/**", patterns)
+
+    def test_scheduled_refresh_payload_dry_run_prints_safe_summary(self):
+        responses = {
+            "/deployment/status": {"api_env": "production", "database_runtime_type": "postgres", "production_ready": True, "job_count": 62, "real_sources_enabled": 2},
+            "/reports/latest": {"exists": True, "date": "2026-06-29"},
+        }
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.test_scheduled_refresh_payload.fetch_json", side_effect=lambda _base, path: responses[path]), redirect_stdout(output):
+            self.assertEqual(test_scheduled_refresh_payload.main(["--url", "https://backend.example.com"]), 0)
+        text = output.getvalue()
+        self.assertIn("POST /admin/refresh-jobs", text)
+        self.assertIn("secrets.ADMIN_REFRESH_TOKEN", text)
+        self.assertIn("job_count: 62", text)
+        self.assertNotIn("do-not-print-me", text)
 
     def test_check_hosted_backend_reports_readiness_without_secrets(self):
         responses = {

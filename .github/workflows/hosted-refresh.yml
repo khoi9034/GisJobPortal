@@ -1,0 +1,53 @@
+name: Hosted Refresh
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh hosted jobs
+        env:
+          ADMIN_REFRESH_TOKEN: ${{ secrets.ADMIN_REFRESH_TOKEN }}
+          BACKEND_URL: https://gisjobportal.onrender.com
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get("ADMIN_REFRESH_TOKEN")
+          if not token:
+              print("ADMIN_REFRESH_TOKEN GitHub secret is missing.")
+              sys.exit(1)
+
+          url = os.environ["BACKEND_URL"].rstrip("/") + "/admin/refresh-jobs"
+          request = urllib.request.Request(
+              url,
+              data=b"{}",
+              headers={
+                  "Content-Type": "application/json",
+                  "X-Admin-Refresh-Token": token,
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=600) as response:
+                  body = response.read().decode("utf-8")
+                  status = response.status
+          except urllib.error.HTTPError as exc:
+              print(f"Hosted refresh failed: HTTP {exc.code}")
+              print(exc.read().decode("utf-8", errors="replace")[:1000])
+              raise
+
+          data = json.loads(body)
+          print(f"Hosted refresh HTTP {status}")
+          for key in ("sources_checked", "jobs_collected", "inserted", "duplicates_updated", "stale_jobs", "strong_excellent_matches", "report_generated"):
+              print(f"{key}: {data.get(key)}")
+          print(f"source_errors: {len(data.get('source_errors') or {})}")
+          PY

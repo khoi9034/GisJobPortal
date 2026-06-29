@@ -148,4 +148,23 @@ python scripts\admin_refresh_hosted.py --url https://gisjobportal.onrender.com
 
 The refresh script reads ignored `runtime/secrets/admin_refresh_token.local.txt` if present. If it is missing, it prompts locally for `ADMIN_REFRESH_TOKEN`, sends it only as the `X-Admin-Refresh-Token` header, and prints a safe summary. After refresh, `/reports/latest` should return the hosted daily digest from Postgres. Later this can move to a provider cron/worker; applications still require manual review and submission.
 
+## Automated Daily Refresh
+
+The GitHub Actions workflow `.github/workflows/hosted-refresh.yml` runs every day at `12:00 UTC` and supports manual `workflow_dispatch` runs.
+
+Set the repository secret once:
+
+```powershell
+cd C:\Dev\GisJobPortal
+.\scripts\setup_github_refresh_secret.ps1
+```
+
+The secret name is `ADMIN_REFRESH_TOKEN`, and its value should match ignored `runtime/secrets/admin_refresh_token.local.txt`. The workflow only calls `POST https://gisjobportal.onrender.com/admin/refresh-jobs`; it never applies, logs into portals, sends emails, or prints the token.
+
+Dry-run the public readiness check:
+
+```powershell
+python scripts\test_scheduled_refresh_payload.py
+```
+
 Do not upload private resume/transcript files, generated packets, `.env` files, or local SQLite database files.
