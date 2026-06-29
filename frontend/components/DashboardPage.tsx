@@ -197,11 +197,13 @@ export default function DashboardPage({ view }: { view: View }) {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [freshness, setFreshness] = useState<FreshnessFilter>("active");
   const [reviewFilters, setReviewFilters] = useState<ReviewFilters>({ freshOnly: false, highMatchOnly: false, closingSoon: false, unreviewedOnly: false, includeStale: false });
   const [message, setMessage] = useState("");
 
   async function load() {
+    setLoaded(false);
     const [jobRows, overview, sourceRows, boardRows, reportRow, profileRow, aiRow] = await Promise.allSettled([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
@@ -220,10 +222,14 @@ export default function DashboardPage({ view }: { view: View }) {
     if (profileRow.status === "fulfilled") setProfile(profileRow.value); else failures.push(`/profile: ${profileRow.reason}`);
     if (aiRow.status === "fulfilled") setAiStatus(aiRow.value); else failures.push(`/ai/status: ${aiRow.reason}`);
     if (failures.length) setMessage(`Live API connected, but ${failures.join("; ")}`);
+    setLoaded(true);
   }
 
   useEffect(() => {
-    load().catch((error) => setMessage(error.message));
+    load().catch((error) => {
+      setMessage(error.message);
+      setLoaded(true);
+    });
   }, []);
 
   const visibleJobs = useMemo(() => filterJobs(jobs, view, freshness), [jobs, view, freshness]);
@@ -318,8 +324,8 @@ export default function DashboardPage({ view }: { view: View }) {
   const headerMeta = {
     mode: dataModeLabel(),
     apiUrl: API_URL,
-    sourceCount: sources.length,
-    lastRefresh: reportTimestamp(report),
+    sourceCount: loaded ? String(sources.length) : "loading",
+    lastRefresh: loaded ? reportTimestamp(report) : "loading",
   };
 
   if (view === "settings") {
@@ -466,7 +472,9 @@ export default function DashboardPage({ view }: { view: View }) {
         ))}
         {!visibleJobs.length && (
           <p className="muted">
-            {dataModeLabel() === "Live API" && (jobs.length || stats?.total)
+            {!loaded
+              ? "Loading live jobs..."
+              : dataModeLabel() === "Live API" && (jobs.length || stats?.total)
               ? `Live API connected, but no jobs returned for this filter. Backend reports ${stats?.total ?? jobs.length} jobs. Try Include stale or Refresh jobs.`
               : "No jobs in this view yet."}
           </p>
@@ -727,7 +735,7 @@ function Header({
   title: string;
   onRefresh: () => void;
   message: string;
-  meta: { mode: string; apiUrl: string; sourceCount: number; lastRefresh: string };
+  meta: { mode: string; apiUrl: string; sourceCount: string; lastRefresh: string };
 }) {
   return (
     <>
@@ -738,7 +746,7 @@ function Header({
           <div className="chips">
             <span className={meta.mode === "Demo Mode" ? "chip warning" : "chip green"}>{meta.mode}</span>
             {meta.mode !== "Demo Mode" && meta.apiUrl && <span className="chip">{meta.apiUrl}</span>}
-            <span className="chip">{meta.sourceCount} sources</span>
+            <span className="chip">{meta.sourceCount === "loading" ? "Loading sources" : `${meta.sourceCount} sources`}</span>
             <span className="chip">Last refresh: {meta.lastRefresh}</span>
           </div>
         </div>

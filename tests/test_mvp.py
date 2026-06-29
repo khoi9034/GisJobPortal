@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -457,6 +457,44 @@ class MvpTests(unittest.TestCase):
         self.assertIn("jobs: 2", text)
         self.assertIn("sources: 2", text)
         self.assertNotIn("do-not-print-me", text)
+
+    def test_vercel_frontend_fetch_diagnostic_checks_browser_origin(self):
+        api_url = "https://backend.example.com"
+        rows = {
+            "/health": {"status": "ok"},
+            "/deployment/status": {"job_count": 2, "source_count": 1},
+            "/jobs": [{"id": 1}, {"id": 2}],
+            "/sources": [{"name": "USAJobs API"}],
+            "/stats/overview": {"total": 2},
+            "/review/queue": {"needs_review": [{"id": 1}], "fresh_high_match": []},
+            "/reports/latest": {"exists": True, "summary": {"new_jobs_inserted": 1}},
+        }
+
+        def fake_text(url):
+            if url.endswith(".js"):
+                return api_url
+            return '<html><script src="/_next/app.js"></script>No jobs in this view yet.</html>'
+
+        def fake_json(url, origin):
+            path = "/" + url.split("/", 3)[3]
+            return rows[path], {"access-control-allow-origin": origin}, 200
+
+        def fake_preflight(_url, origin):
+            return {"access-control-allow-origin": origin}, 200
+
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_vercel_frontend_fetch.fetch_text", side_effect=fake_text), patch("scripts.check_vercel_frontend_fetch.fetch_json", side_effect=fake_json), patch("scripts.check_vercel_frontend_fetch.preflight", side_effect=fake_preflight), redirect_stdout(output):
+            self.assertEqual(check_vercel_frontend_fetch.main(["--site", "https://site.example.com", "--api", api_url]), 0)
+        text = output.getvalue()
+        self.assertIn("/jobs length: 2", text)
+        self.assertIn("/sources length: 1", text)
+        self.assertIn("bundle has api url: True", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_dashboard_live_api_initial_state_says_loading_not_zero(self):
+        text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
+        self.assertIn("Loading live jobs...", text)
+        self.assertIn("Loading sources", text)
 
     def test_connect_render_backend_script_is_safe_static(self):
         text = Path("scripts/connect_render_backend.ps1").read_text(encoding="utf-8")
