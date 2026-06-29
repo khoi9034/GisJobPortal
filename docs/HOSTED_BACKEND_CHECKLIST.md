@@ -54,6 +54,19 @@ production ready: yes
 
 If it reports `database type: sqlite`, that backend is only a smoke deployment and should not be used for live production data.
 
+## Using the Render API helper
+
+From the repo root:
+
+```powershell
+cd C:\Dev\GisJobPortal
+.\scripts\connect_render_backend.ps1
+```
+
+The script asks for the Render API key locally with `Read-Host -AsSecureString`. It does not save the key, write it to an env file, or commit it. It checks the Render service, reports whether required env vars are present, checks hosted backend readiness, and optionally triggers a deploy only if you type `y`.
+
+If env vars are missing, add them in the Render dashboard.
+
 8. Export local seed data if needed:
 
 ```powershell

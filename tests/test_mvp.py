@@ -389,6 +389,20 @@ class MvpTests(unittest.TestCase):
         self.assertIn("production ready: yes", text)
         self.assertNotIn("do-not-print-me", text)
 
+    def test_connect_render_backend_script_is_safe_static(self):
+        text = Path("scripts/connect_render_backend.ps1").read_text(encoding="utf-8")
+        self.assertIn("srv-d90slrjeo5us73caqu40", text)
+        self.assertIn("https://gis-job-portal-api.onrender.com", text)
+        self.assertIn("Read-Host \"Paste Render API key, then press Enter:\" -AsSecureString", text)
+        self.assertIn("Authorization = \"Bearer $ApiKey\"", text)
+        self.assertNotRegex(text, r"rnd_[A-Za-z0-9]|Authorization = \"Bearer [^$]")
+        self.assertNotRegex(text, r"(Set-Content|Out-File|Add-Content).*(ApiKey|SecureKey|Render API key)")
+
+    def test_render_docs_do_not_contain_secret_values(self):
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in [Path("README.md"), *Path("docs").glob("*.md")])
+        self.assertIn("connect_render_backend.ps1", combined)
+        self.assertNotRegex(combined, r"rnd_[A-Za-z0-9]|vcp_|apiapi|sk-[A-Za-z0-9]")
+
     def test_check_ports_runs_without_secrets(self):
         output = io.StringIO()
         with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_ports.is_open", return_value=True), patch("scripts.check_ports.http_get", return_value=(True, "HTTP 200")), patch("scripts.check_ports.health", return_value=(False, "/health HTTP 404")), redirect_stdout(output):
