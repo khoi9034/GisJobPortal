@@ -21,6 +21,8 @@ frontend/.env.local
 coverage/
 runtime/
 runtime/**
+runtime/secrets/
+runtime/secrets/**
 generated/application_packets/
 generated/application_packets/**
 !generated/application_packets/

@@ -397,6 +397,31 @@ class MvpTests(unittest.TestCase):
                 self.assertEqual(admin_refresh_hosted.main(["--url", "https://backend.example.com"]), 0)
         self.assertNotIn("secret-token", output.getvalue())
 
+    def test_admin_refresh_hosted_reads_ignored_token_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "admin_refresh_token.local.txt"
+            path.write_text("stored-token", encoding="utf-8")
+            with patch("scripts.admin_refresh_hosted.admin_refresh", return_value={"sources_checked": 1, "jobs_collected": 1, "inserted": 0, "duplicates_updated": 1, "stale_jobs": 0, "strong_excellent_matches": 1, "report_generated": True, "source_errors": {}}):
+                output = io.StringIO()
+                with patch("scripts.admin_refresh_hosted.TOKEN_PATH", path), redirect_stdout(output):
+                    self.assertEqual(admin_refresh_hosted.main(["--url", "https://backend.example.com"]), 0)
+        self.assertNotIn("stored-token", output.getvalue())
+
+    def test_admin_refresh_hosted_falls_back_to_getpass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing-token.txt"
+            with patch("scripts.admin_refresh_hosted.getpass.getpass", return_value="prompt-token"):
+                self.assertEqual(admin_refresh_hosted.load_token(missing), "prompt-token")
+
+    def test_setup_hosted_refresh_script_is_safe_static(self):
+        text = Path("scripts/setup_hosted_refresh.ps1").read_text(encoding="utf-8")
+        self.assertIn("srv-d90stu3sq97s739mpta0", text)
+        self.assertIn("Paste Render API key, then press Enter:", text)
+        self.assertIn("ADMIN_REFRESH_TOKEN", text)
+        self.assertIn("runtime\\secrets\\admin_refresh_token.local.txt", text)
+        self.assertIn("RandomNumberGenerator", text)
+        self.assertNotRegex(text, r"rnd_[A-Za-z0-9]|Authorization = \"Bearer [^$]|ADMIN_REFRESH_TOKEN\\s*=\\s*['\"][A-Za-z0-9_-]{20,}")
+
     def test_check_hosted_backend_reports_readiness_without_secrets(self):
         responses = {
             "/health": {"status": "ok"},
@@ -461,6 +486,7 @@ class MvpTests(unittest.TestCase):
         combined = "\n".join(path.read_text(encoding="utf-8") for path in [Path("README.md"), *Path("docs").glob("*.md")])
         self.assertIn("connect_render_backend.ps1", combined)
         self.assertIn("connect_vercel_live_api.ps1", combined)
+        self.assertIn("setup_hosted_refresh.ps1", combined)
         self.assertNotRegex(combined, r"rnd_[A-Za-z0-9]|vcp_|apiapi|sk-[A-Za-z0-9]")
 
     def test_check_ports_runs_without_secrets(self):
@@ -728,6 +754,8 @@ class MvpTests(unittest.TestCase):
         patterns = Path(".gitignore").read_text(encoding="utf-8")
         self.assertIn("runtime/", patterns)
         self.assertIn("runtime/**", patterns)
+        self.assertIn("runtime/secrets/", patterns)
+        self.assertIn("runtime/secrets/**", patterns)
 
     def test_runtime_exports_are_ignored(self):
         patterns = Path(".gitignore").read_text(encoding="utf-8")

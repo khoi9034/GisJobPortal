@@ -3,7 +3,11 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+from pathlib import Path
 from urllib import error, request
+
+ROOT = Path(__file__).resolve().parents[1]
+TOKEN_PATH = ROOT / "runtime" / "secrets" / "admin_refresh_token.local.txt"
 
 
 def admin_refresh(base_url: str, token: str) -> dict:
@@ -17,11 +21,18 @@ def admin_refresh(base_url: str, token: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def load_token(path: Path | None = None) -> str:
+    path = path or TOKEN_PATH
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    return getpass.getpass("ADMIN_REFRESH_TOKEN: ")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the hosted admin job refresh.")
     parser.add_argument("--url", default="https://gisjobportal.onrender.com", help="Backend URL")
     args = parser.parse_args(argv)
-    token = getpass.getpass("ADMIN_REFRESH_TOKEN: ")
+    token = load_token()
     try:
         result = admin_refresh(args.url, token)
     except error.HTTPError as exc:

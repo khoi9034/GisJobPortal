@@ -131,12 +131,21 @@ Expected result: the Vercel dashboard badge says `Live API`, not `Demo Mode`, an
 
 Set `ADMIN_REFRESH_TOKEN` in Render, not Vercel. Use a long random value, then redeploy Render.
 
+Automated setup:
+
+```powershell
+cd C:\Dev\GisJobPortal
+.\scripts\setup_hosted_refresh.ps1
+```
+
+The setup script prompts locally for the Render API key, generates `ADMIN_REFRESH_TOKEN`, sets it on Render through the Render API, stores the token only in ignored `runtime/secrets/admin_refresh_token.local.txt`, triggers a Render deploy, runs hosted refresh, and verifies `/reports/latest`.
+
 Run a hosted refresh from your local machine:
 
 ```powershell
 python scripts\admin_refresh_hosted.py --url https://gisjobportal.onrender.com
 ```
 
-The script prompts locally for `ADMIN_REFRESH_TOKEN`, sends it only as the `X-Admin-Refresh-Token` header, and prints a safe summary. After refresh, `/reports/latest` should return the hosted daily digest from Postgres. Later this can move to a provider cron/worker; applications still require manual review and submission.
+The refresh script reads ignored `runtime/secrets/admin_refresh_token.local.txt` if present. If it is missing, it prompts locally for `ADMIN_REFRESH_TOKEN`, sends it only as the `X-Admin-Refresh-Token` header, and prints a safe summary. After refresh, `/reports/latest` should return the hosted daily digest from Postgres. Later this can move to a provider cron/worker; applications still require manual review and submission.
 
 Do not upload private resume/transcript files, generated packets, `.env` files, or local SQLite database files.
