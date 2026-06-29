@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .freshness import apply_freshness, freshness_rules, parse_date, today_utc
-from .paths import DB_PATH
+from .paths import DB_PATH, database_type, postgres_connection_url
 
 VALID_STATUSES = {
     "new",
@@ -107,7 +107,42 @@ def now_iso() -> str:
     return datetime.now(UTC).date().isoformat()
 
 
-def connect(path: Path | str = DB_PATH) -> sqlite3.Connection:
+class PostgresConnection:
+    is_postgres = True
+
+    def __init__(self):
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise RuntimeError("Postgres DATABASE_URL requires psycopg; run pip install -r requirements.txt") from exc
+        self.conn = psycopg.connect(postgres_connection_url(), row_factory=dict_row)
+
+    def execute(self, sql: str, params: Any = None):
+        return self.conn.execute(sql.replace("?", "%s"), params or [])
+
+    def executescript(self, script: str) -> None:
+        for statement in [part.strip() for part in script.split(";") if part.strip()]:
+            self.execute(statement)
+
+    def commit(self) -> None:
+        self.conn.commit()
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+def uses_configured_database(path: Path | str = DB_PATH) -> bool:
+    return Path(path) == Path(DB_PATH)
+
+
+def is_postgres_conn(conn: Any) -> bool:
+    return bool(getattr(conn, "is_postgres", False))
+
+
+def connect(path: Path | str = DB_PATH):
+    if uses_configured_database(path) and database_type() == "postgres":
+        return PostgresConnection()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -126,8 +161,7 @@ def connection(path: Path | str = DB_PATH):
 
 def init_db(path: Path | str = DB_PATH) -> None:
     with connection(path) as conn:
-        conn.executescript(
-            """
+        schema = """
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -249,13 +283,25 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 updated_at TEXT NOT NULL
             );
             """
-        )
+        if is_postgres_conn(conn):
+            schema = schema.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+        conn.executescript(schema)
         ensure_job_columns(conn)
         ensure_source_columns(conn)
 
 
-def ensure_job_columns(conn: sqlite3.Connection) -> None:
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+def table_columns(conn: Any, table: str) -> set[str]:
+    if is_postgres_conn(conn):
+        rows = conn.execute(
+            "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?",
+            (table,),
+        ).fetchall()
+        return {row["name"] for row in rows}
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def ensure_job_columns(conn: Any) -> None:
+    existing = table_columns(conn, "jobs")
     additions = {
         "application_packet_dir": "TEXT DEFAULT ''",
         "document_checklist": "TEXT DEFAULT '{}'",
@@ -298,8 +344,8 @@ def ensure_job_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
 
 
-def ensure_source_columns(conn: sqlite3.Connection) -> None:
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(job_sources)").fetchall()}
+def ensure_source_columns(conn: Any) -> None:
+    existing = table_columns(conn, "job_sources")
     additions = {
         "last_checked": "TEXT DEFAULT ''",
         "last_status": "TEXT DEFAULT ''",
@@ -507,14 +553,8 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     columns = ", ".join(JOB_COLUMNS)
     placeholders = ", ".join("?" for _ in JOB_COLUMNS)
     with connection(path) as conn:
-        cursor = conn.execute(
-            f"INSERT OR IGNORE INTO jobs ({columns}) VALUES ({placeholders})",
-            [values[column] for column in JOB_COLUMNS],
-        )
-        if cursor.rowcount == 0:
-            existing = duplicate_row(conn, values)
-            if not existing:
-                return None, True
+        existing = duplicate_row(conn, values)
+        if existing:
             first_seen = existing["first_seen_at"] or existing["date_found"]
             updated = {**values, **apply_freshness(values, first_seen_at=first_seen)}
             for field in JSON_FIELDS:
@@ -559,6 +599,11 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
                 [updated.get(field) for field in update_fields] + [existing["id"]],
             )
             return int(existing["id"]), True
+        sql = f"INSERT INTO jobs ({columns}) VALUES ({placeholders})"
+        if is_postgres_conn(conn):
+            row = conn.execute(f"{sql} RETURNING id", [values[column] for column in JOB_COLUMNS]).fetchone()
+            return int(row["id"]), False
+        cursor = conn.execute(sql, [values[column] for column in JOB_COLUMNS])
         return int(cursor.lastrowid), False
 
 
@@ -599,19 +644,18 @@ def mark_missing_jobs(source: str, checked_at: str, seen_jobs: list[dict[str, An
 
 def freshness_counts(path: Path | str = DB_PATH) -> dict[str, int]:
     rules = freshness_rules()
-    init_db(path)
-    with connection(path) as conn:
-        row = conn.execute(
-            """
-            SELECT
-                sum(CASE WHEN is_stale = 1 THEN 1 ELSE 0 END) AS stale_jobs,
-                sum(CASE WHEN is_closed_or_missing = 0 AND posting_age_days IS NOT NULL AND posting_age_days <= ? THEN 1 ELSE 0 END) AS fresh_jobs,
-                sum(CASE WHEN source_closes_at <> '' AND is_closed_or_missing = 0 AND julianday(source_closes_at) - julianday(date('now')) BETWEEN 0 AND ? THEN 1 ELSE 0 END) AS closing_soon_jobs
-            FROM jobs
-            """,
-            (int(rules["fresh_days"]), int(rules["closing_soon_days"])),
-        ).fetchone()
-    return {key: int(row[key] or 0) for key in ("stale_jobs", "fresh_jobs", "closing_soon_jobs")}
+    rows = list_jobs(path=path)
+    closing_soon = 0
+    for job in rows:
+        closes = parse_date(job.get("source_closes_at"))
+        if closes and not job.get("is_closed_or_missing"):
+            days = (closes - today_utc()).days
+            closing_soon += int(0 <= days <= int(rules["closing_soon_days"]))
+    return {
+        "stale_jobs": sum(1 for job in rows if job.get("is_stale")),
+        "fresh_jobs": sum(1 for job in rows if not job.get("is_closed_or_missing") and job.get("posting_age_days") is not None and int(job["posting_age_days"]) <= int(rules["fresh_days"])),
+        "closing_soon_jobs": closing_soon,
+    }
 
 
 def get_job(job_id: int, path: Path | str = DB_PATH) -> dict[str, Any] | None:

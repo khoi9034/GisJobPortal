@@ -1,5 +1,13 @@
 # Hosted Backend Checklist
 
+Fresh Render backend:
+
+- Service ID: `srv-d90stu3sq97s739mpta0`
+- URL: `https://gisjobportal.onrender.com`
+- Repo/branch: `khoi9034/GisJobPortal` on `main`
+
+Ignore the old Render service `srv-d90slrjeo5us73caqu40` unless you need it for comparison. Do not delete it from this workflow.
+
 1. Choose a backend host: Render, Railway, or Fly.io.
 2. Create a hosted Postgres database: Neon, Supabase, Railway Postgres, or Render Postgres.
 3. Deploy from the repo root, not `backend/`.
@@ -28,6 +36,14 @@ USAJOBS_USER_AGENT=<local_secret_email_or_user_agent>
 USAJOBS_AUTHORIZATION_KEY=<secret_key_from_usajobs>
 ```
 
+For Neon, use the connection string with a password, for example:
+
+```text
+postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require
+```
+
+`postgresql://USER:PASSWORD@HOST/DB?sslmode=require` is also accepted by the app. Do not use a passwordless URL.
+
 5. Deploy the FastAPI backend.
 6. Check:
 
@@ -47,6 +63,7 @@ Do not point Vercel to the hosted backend until the smoke check reports:
 ```text
 api env: production
 database type: postgres
+database_runtime_type: postgres
 real job count: greater than 0
 real sources enabled: greater than 0
 production ready: yes
@@ -61,6 +78,7 @@ From the repo root:
 ```powershell
 cd C:\Dev\GisJobPortal
 .\scripts\connect_render_backend.ps1
+python scripts\check_hosted_backend.py --url https://gisjobportal.onrender.com
 ```
 
 The script asks for the Render API key locally with `Read-Host -AsSecureString`. It does not save the key, write it to an env file, or commit it. It checks the Render service, reports whether required env vars are present, checks hosted backend readiness, and optionally triggers a deploy only if you type `y`.

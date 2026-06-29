@@ -19,7 +19,7 @@ from .documents import (
     transcript_summary,
 )
 from .materials import generate_materials
-from .paths import ROOT, api_env, cors_origins, database_runtime_type, database_type
+from .paths import ROOT, api_env, cors_origins, database_runtime_type, database_type, database_url_present, database_url_scheme
 from .profile import load_profile
 from .reports import latest_report as latest_daily_report
 from .scoring import score_job
@@ -115,15 +115,31 @@ def app_version() -> str:
 def deployment_status() -> dict[str, Any]:
     configured_sources = load_sources()
     jobs = db.list_jobs()
+    runtime_type = database_runtime_type()
+    real_sources_enabled = sum(1 for source in configured_sources if source.get("enabled") and source.get("name") != "Sample GIS Jobs")
+    blockers = []
+    if api_env() != "production":
+        blockers.append("API_ENV is not production")
+    if not database_url_present():
+        blockers.append("DATABASE_URL is missing")
+    if runtime_type != "postgres":
+        blockers.append("database runtime is not postgres")
+    if real_sources_enabled <= 0:
+        blockers.append("no real sources enabled")
     return {
         "api_env": api_env(),
-        "database_type": database_runtime_type(),
+        "database_type": runtime_type,
+        "database_runtime_type": runtime_type,
         "configured_database_type": database_type(),
+        "database_url_present": database_url_present(),
+        "database_url_scheme": database_url_scheme(),
         "database": "connected",
         "cors_origins_count": len(cors_origins()),
         "source_count": len(configured_sources),
         "job_count": len(jobs),
-        "real_sources_enabled": sum(1 for source in configured_sources if source.get("enabled") and source.get("name") != "Sample GIS Jobs"),
+        "real_sources_enabled": real_sources_enabled,
+        "production_blockers": blockers,
+        "production_ready": not blockers,
         "version": app_version(),
     }
 

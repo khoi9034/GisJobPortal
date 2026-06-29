@@ -3,8 +3,8 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $RepoRoot
 
-$ServiceId = "srv-d90slrjeo5us73caqu40"
-$BackendUrl = "https://gis-job-portal-api.onrender.com"
+$ServiceId = "srv-d90stu3sq97s739mpta0"
+$BackendUrl = "https://gisjobportal.onrender.com"
 $RenderApiBase = "https://api.render.com/v1"
 $RequiredEnvVars = @(
   "DATABASE_URL",
@@ -122,8 +122,13 @@ try {
   if ($Health) { Write-Host "- health status: $($Health.status)" }
   if ($Status) {
     Write-Host "- api_env: $($Status.api_env)"
-    Write-Host "- database type: $($Status.database_type)"
+    Write-Host "- database_url_present: $($Status.database_url_present)"
+    Write-Host "- database_url_scheme: $($Status.database_url_scheme)"
+    Write-Host "- database_runtime_type: $($Status.database_runtime_type)"
     Write-Host "- real source count: $($Status.real_sources_enabled)"
+    if ($Status.production_blockers) {
+      Write-Host "- production blockers: $($Status.production_blockers -join ", ")"
+    }
   }
   if ($Jobs) {
     $RealJobs = @($Jobs | Where-Object { $_.source -notin @("Demo", "Sample GIS Jobs") })
@@ -131,8 +136,14 @@ try {
     Write-Host "- real job count: $($RealJobs.Count)"
   }
   $RealSourceCount = if ($Status -and $Status.real_sources_enabled) { [int]$Status.real_sources_enabled } else { 0 }
-  $ProductionReady = $Health.status -eq "ok" -and $Status.api_env -eq "production" -and $Status.database_type -eq "postgres" -and $RealSourceCount -gt 0 -and $Jobs -and @($Jobs | Where-Object { $_.source -notin @("Demo", "Sample GIS Jobs") }).Count -gt 0
+  $RuntimeType = if ($Status.database_runtime_type) { $Status.database_runtime_type } else { $Status.database_type }
+  $BlockerCount = if ($Status.production_blockers) { @($Status.production_blockers).Count } else { 0 }
+  $ProductionReady = $Health.status -eq "ok" -and $Status.api_env -eq "production" -and $RuntimeType -eq "postgres" -and $RealSourceCount -gt 0 -and $BlockerCount -eq 0 -and $Jobs -and @($Jobs | Where-Object { $_.source -notin @("Demo", "Sample GIS Jobs") }).Count -gt 0
   Write-Host "- production-ready gate: $(if ($ProductionReady) { "pass" } else { "fail" })"
+  if ($RuntimeType -eq "sqlite") {
+    Write-Host "SQLite diagnosis: check DATABASE_URL is present, uses a passworded Neon URL, the service was redeployed after env changes, and psycopg installed from requirements.txt."
+    Write-Host "Expected DATABASE_URL format: postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require"
+  }
 
   Write-Host ""
   $Deploy = Read-Host "Trigger a new deploy now? y/n"

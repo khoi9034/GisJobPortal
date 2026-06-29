@@ -24,7 +24,7 @@ from backend.app.documents import (
 )
 from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
-from backend.app.paths import api_env, cors_origins, database_path, database_type, database_url
+from backend.app.paths import api_env, cors_origins, database_path, database_runtime_type, database_type, database_url, database_url_scheme
 from backend.app.profile import load_profile
 from backend.app.scoring import score_band, score_job
 from backend.app.sources import load_search_profiles, load_sources
@@ -377,7 +377,7 @@ class MvpTests(unittest.TestCase):
     def test_check_hosted_backend_reports_readiness_without_secrets(self):
         responses = {
             "/health": {"status": "ok"},
-            "/deployment/status": {"api_env": "production", "database_type": "postgres", "configured_database_type": "postgres", "real_sources_enabled": 2},
+            "/deployment/status": {"api_env": "production", "database_runtime_type": "postgres", "database_url_present": True, "database_url_scheme": "postgresql+psycopg", "configured_database_type": "postgres", "real_sources_enabled": 2, "production_blockers": []},
             "/jobs": [{"source": "USAJobs API"}, {"source": "Woolpert Careers"}],
             "/review/queue": {"fresh_high_match": [{"id": 1}], "needs_review": []},
             "/application/board": {"ready_to_apply": [], "applied": [{"id": 2}]},
@@ -386,13 +386,16 @@ class MvpTests(unittest.TestCase):
         with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_hosted_backend.fetch_json", side_effect=lambda _base, path: responses[path]), redirect_stdout(output):
             self.assertEqual(check_hosted_backend.main(["--url", "https://backend.example.com"]), 0)
         text = output.getvalue()
+        self.assertIn("database_runtime_type: postgres", text)
+        self.assertIn("production blockers: none", text)
         self.assertIn("production ready: yes", text)
         self.assertNotIn("do-not-print-me", text)
 
     def test_connect_render_backend_script_is_safe_static(self):
         text = Path("scripts/connect_render_backend.ps1").read_text(encoding="utf-8")
-        self.assertIn("srv-d90slrjeo5us73caqu40", text)
-        self.assertIn("https://gis-job-portal-api.onrender.com", text)
+        self.assertIn("srv-d90stu3sq97s739mpta0", text)
+        self.assertIn("https://gisjobportal.onrender.com", text)
+        self.assertNotIn("srv-d90slrjeo5us73caqu40", text)
         self.assertIn("Read-Host \"Paste Render API key, then press Enter:\" -AsSecureString", text)
         self.assertIn("Authorization = \"Bearer $ApiKey\"", text)
         self.assertNotRegex(text, r"rnd_[A-Za-z0-9]|Authorization = \"Bearer [^$]")
@@ -761,7 +764,7 @@ class MvpTests(unittest.TestCase):
         self.assertNotIn("do-not-print-me", text)
 
     def test_env_driven_cors_and_database_url(self):
-        with patch.dict(os.environ, {"CORS_ORIGINS": "[http://localhost:3000,https://gis-job-portal.vercel.app]", "API_ENV": "test", "DATABASE_URL": "sqlite:///./tmp/test.db"}, clear=False):
+        with patch("backend.app.paths.load_backend_env"), patch.dict(os.environ, {"CORS_ORIGINS": "[http://localhost:3000,https://gis-job-portal.vercel.app]", "API_ENV": "test", "DATABASE_URL": "sqlite:///./tmp/test.db"}, clear=False):
             self.assertEqual(api_env(), "test")
             self.assertEqual(cors_origins(), ["http://localhost:3000", "https://gis-job-portal.vercel.app"])
             self.assertTrue(str(database_path()).endswith("tmp\\test.db") or str(database_path()).endswith("tmp/test.db"))
@@ -773,6 +776,8 @@ class MvpTests(unittest.TestCase):
                 self.assertEqual(database_type(), "sqlite")
             with patch.dict(os.environ, {"DATABASE_URL": "postgresql+psycopg://user:pass@host:5432/db"}, clear=True):
                 self.assertEqual(database_type(), "postgres")
+                self.assertEqual(database_runtime_type(), "postgres")
+                self.assertEqual(database_url_scheme(), "postgresql+psycopg")
                 with self.assertRaises(ValueError):
                     database_path()
 
@@ -821,7 +826,7 @@ class MvpTests(unittest.TestCase):
         self.assertIn("/deployment/status", checklist)
 
     def test_postgres_url_is_explicitly_future_work(self):
-        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://example"}, clear=False):
+        with patch("backend.app.paths.load_backend_env"), patch.dict(os.environ, {"DATABASE_URL": "postgresql://example"}, clear=False):
             with self.assertRaises(ValueError):
                 database_path()
 
