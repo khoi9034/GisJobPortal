@@ -11,6 +11,17 @@ $LiveSite = "https://gis-job-portal.vercel.app"
 $VercelApiBase = "https://api.vercel.com"
 $Targets = @("production", "preview", "development")
 
+trap {
+  $env:VERCEL_TOKEN = $null
+  $Token = $null
+  $SecureToken = $null
+  Write-Host ""
+  Write-Host "Vercel connection failed: $($_.Exception.Message)"
+  Write-Host "No token was saved. Check the message above, then retry this script."
+  $null = Read-Host "Press Enter to close"
+  exit 1
+}
+
 function Convert-ToPlainText([securestring]$SecureValue) {
   $Bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureValue)
   try {
@@ -108,6 +119,7 @@ Write-Host "Checking backend readiness before touching Vercel..."
 
 if (-not (Test-BackendReady)) {
   Write-Host "Backend is not production-ready. Vercel was not changed."
+  $null = Read-Host "Press Enter to close"
   exit 1
 }
 
@@ -167,3 +179,6 @@ try {
   $Token = $null
   $SecureToken = $null
 }
+
+Write-Host ""
+$null = Read-Host "Done. Press Enter to close"
