@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -19,9 +19,10 @@ from .documents import (
     transcript_summary,
 )
 from .materials import generate_materials
-from .paths import ROOT, api_env, cors_origins, database_runtime_type, database_type, database_url_present, database_url_scheme
+from .paths import ROOT, admin_refresh_token, api_env, cors_origins, database_runtime_type, database_type, database_url_present, database_url_scheme
 from .profile import load_profile
 from .reports import latest_report as latest_daily_report
+from .reports import redact
 from .scoring import score_job
 from .source_validation import validate_sources
 from .sources import load_sources, save_source
@@ -97,6 +98,34 @@ def ensure_seeded() -> None:
         refresh_jobs()
 
 
+def require_admin_refresh_token(x_admin_refresh_token: str | None = None) -> None:
+    expected = admin_refresh_token()
+    if api_env() != "production":
+        if expected and x_admin_refresh_token and x_admin_refresh_token != expected:
+            raise HTTPException(status_code=403, detail="Invalid admin refresh token")
+        return
+    if not expected:
+        raise HTTPException(status_code=503, detail="ADMIN_REFRESH_TOKEN is not configured")
+    if x_admin_refresh_token != expected:
+        raise HTTPException(status_code=403, detail="Invalid admin refresh token")
+
+
+def refresh_summary(result: dict[str, Any]) -> dict[str, Any]:
+    errors = {redact(source): redact(message) for source, message in (result.get("errors") or {}).items()}
+    return {
+        "sources_checked": result.get("sources_checked", 0),
+        "jobs_collected": result.get("jobs_collected", 0),
+        "inserted": result.get("new_jobs_inserted", 0),
+        "new_jobs_found": result.get("new_jobs_found", 0),
+        "duplicates_skipped": result.get("duplicates_skipped", 0),
+        "duplicates_updated": result.get("duplicates_updated", 0),
+        "stale_jobs": result.get("stale_jobs", 0),
+        "strong_excellent_matches": result.get("high_matches", 0),
+        "source_errors": errors,
+        "report_generated": bool(result.get("daily_report_path")),
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     with db.connection() as conn:
@@ -160,8 +189,15 @@ def job(job_id: int) -> dict[str, Any]:
 
 
 @app.post("/jobs/refresh")
-def refresh() -> dict[str, Any]:
-    return refresh_jobs()
+def refresh(x_admin_refresh_token: str | None = Header(default=None, alias="X-Admin-Refresh-Token")) -> dict[str, Any]:
+    require_admin_refresh_token(x_admin_refresh_token)
+    return refresh_summary(refresh_jobs())
+
+
+@app.post("/admin/refresh-jobs")
+def admin_refresh_jobs(x_admin_refresh_token: str | None = Header(default=None, alias="X-Admin-Refresh-Token")) -> dict[str, Any]:
+    require_admin_refresh_token(x_admin_refresh_token)
+    return refresh_summary(refresh_jobs())
 
 
 @app.get("/review/queue")

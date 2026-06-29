@@ -7,14 +7,15 @@ from pathlib import Path
 from datetime import date, timedelta
 from contextlib import redirect_stdout
 from unittest.mock import patch
+from fastapi import HTTPException
 
-from scripts import analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import ai_status_endpoint, application_board as application_board_endpoint, deployment_status, health, latest_report as latest_report_endpoint, sources as sources_endpoint, validate_source_config
+from backend.app.api import admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, deployment_status, health, latest_report as latest_report_endpoint, refresh as refresh_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -24,7 +25,7 @@ from backend.app.documents import (
 )
 from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
-from backend.app.paths import api_env, cors_origins, database_path, database_runtime_type, database_type, database_url, database_url_scheme
+from backend.app.paths import admin_refresh_token, api_env, cors_origins, database_path, database_runtime_type, database_type, database_url, database_url_scheme
 from backend.app.profile import load_profile
 from backend.app.scoring import score_band, score_job
 from backend.app.sources import load_search_profiles, load_sources
@@ -371,6 +372,8 @@ class MvpTests(unittest.TestCase):
         self.assertIn("dataModeLabel()", dashboard_text)
         self.assertIn("Promise.allSettled", dashboard_text)
         self.assertIn("Live API connected, but no jobs returned for this filter", dashboard_text)
+        self.assertIn("Hosted refresh admin-only", dashboard_text)
+        self.assertNotIn("ADMIN_REFRESH_TOKEN", dashboard_text)
 
     def test_check_frontend_data_mode_does_not_expose_secrets(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
@@ -382,6 +385,17 @@ class MvpTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("warning: frontend is in demo mode while the backend has real jobs.", text)
         self.assertNotIn("do-not-print-me", text)
+
+    def test_admin_refresh_hosted_script_does_not_save_or_print_token(self):
+        text = Path("scripts/admin_refresh_hosted.py").read_text(encoding="utf-8")
+        self.assertIn("getpass.getpass", text)
+        self.assertIn("X-Admin-Refresh-Token", text)
+        self.assertNotRegex(text, r"print\(.*token|write_text|open\(.*token")
+        with patch("scripts.admin_refresh_hosted.getpass.getpass", return_value="secret-token"), patch("scripts.admin_refresh_hosted.admin_refresh", return_value={"sources_checked": 1, "jobs_collected": 1, "inserted": 1, "duplicates_updated": 0, "stale_jobs": 0, "strong_excellent_matches": 1, "report_generated": True, "source_errors": {}}):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(admin_refresh_hosted.main(["--url", "https://backend.example.com"]), 0)
+        self.assertNotIn("secret-token", output.getvalue())
 
     def test_check_hosted_backend_reports_readiness_without_secrets(self):
         responses = {
@@ -663,6 +677,28 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(row["exists"])
         self.assertEqual(row["summary"]["new_jobs_inserted"], 2)
 
+    def test_daily_report_db_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.save_daily_report("2026-06-29", "2026-06-29T08:00:00Z", "test", {"new_jobs_inserted": 3}, "# Hosted Report", path)
+            row = db.latest_daily_report(path)
+        self.assertTrue(row["exists"])
+        self.assertEqual(row["date"], "2026-06-29")
+        self.assertEqual(row["summary"]["new_jobs_inserted"], 3)
+        self.assertIn("Hosted Report", row["text"])
+
+    def test_latest_report_uses_db_report_for_postgres(self):
+        with patch("backend.app.paths.database_runtime_type", return_value="postgres"), patch("backend.app.db.latest_daily_report", return_value={"exists": True, "date": "2026-06-29", "text": "# DB Report", "summary": {}}):
+            row = reports.latest_report()
+        self.assertTrue(row["exists"])
+        self.assertIn("DB Report", row["text"])
+
+    def test_hosted_empty_report_state_is_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = db.latest_daily_report(Path(tmp) / "jobs.sqlite3")
+        self.assertFalse(row["exists"])
+        self.assertIn("No hosted report", row["text"])
+
     def test_report_does_not_contain_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
             secret = "redacted-value"
@@ -805,6 +841,37 @@ class MvpTests(unittest.TestCase):
         self.assertIn(result["database_type"], {"sqlite", "postgres", "unknown"})
         self.assertIn("cors_origins_count", result)
         self.assertNotIn("do-not-print-me", text)
+
+    def test_production_admin_refresh_rejects_missing_token(self):
+        with patch("backend.app.api.api_env", return_value="production"), patch("backend.app.api.admin_refresh_token", return_value="secret"):
+            with self.assertRaises(HTTPException) as raised:
+                admin_refresh_jobs()
+        self.assertEqual(raised.exception.status_code, 403)
+
+    def test_production_admin_refresh_accepts_valid_token_without_returning_it(self):
+        result = {
+            "sources_checked": 1,
+            "jobs_collected": 2,
+            "new_jobs_inserted": 1,
+            "new_jobs_found": 1,
+            "duplicates_skipped": 1,
+            "duplicates_updated": 1,
+            "stale_jobs": 0,
+            "high_matches": 1,
+            "errors": {},
+            "daily_report_path": "runtime/reports/daily_review_2026-06-29.md",
+        }
+        with patch("backend.app.api.api_env", return_value="production"), patch("backend.app.api.admin_refresh_token", return_value="secret"), patch("backend.app.api.refresh_jobs", return_value=result):
+            row = admin_refresh_jobs("secret")
+        text = json.dumps(row)
+        self.assertTrue(row["report_generated"])
+        self.assertEqual(row["strong_excellent_matches"], 1)
+        self.assertNotIn("secret", text)
+
+    def test_local_refresh_endpoint_allows_missing_token(self):
+        with patch("backend.app.api.api_env", return_value="local"), patch("backend.app.api.admin_refresh_token", return_value=""), patch("backend.app.api.refresh_jobs", return_value={"errors": {}, "daily_report_path": "x"}):
+            row = refresh_endpoint()
+        self.assertTrue(row["report_generated"])
 
     def test_env_driven_cors_and_database_url(self):
         with patch("backend.app.paths.load_backend_env"), patch.dict(os.environ, {"CORS_ORIGINS": "[http://localhost:3000,https://gis-job-portal.vercel.app]", "API_ENV": "test", "DATABASE_URL": "sqlite:///./tmp/test.db"}, clear=False):

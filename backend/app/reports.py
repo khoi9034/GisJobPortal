@@ -123,6 +123,11 @@ def parse_summary(text: str) -> dict[str, int]:
 
 
 def latest_report(report_dir: Path = REPORTS_DIR) -> dict[str, Any]:
+    from . import db
+    from .paths import database_runtime_type
+
+    if database_runtime_type() == "postgres":
+        return db.latest_daily_report()
     reports = sorted(report_dir.glob("daily_review_*.md")) if report_dir.exists() else []
     if not reports:
         return {"exists": False, "date": "", "text": "No daily review report has been generated yet.", "summary": {}}

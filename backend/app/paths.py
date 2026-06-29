@@ -88,6 +88,11 @@ def api_env() -> str:
     return os.getenv("API_ENV", "local")
 
 
+def admin_refresh_token() -> str:
+    load_backend_env()
+    return os.getenv("ADMIN_REFRESH_TOKEN", "").strip()
+
+
 def cors_origins() -> list[str]:
     load_backend_env()
     raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://gis-job-portal.vercel.app")

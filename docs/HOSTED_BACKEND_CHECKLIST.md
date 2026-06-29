@@ -34,6 +34,7 @@ API_ENV=production
 CORS_ORIGINS=https://gis-job-portal.vercel.app
 USAJOBS_USER_AGENT=<local_secret_email_or_user_agent>
 USAJOBS_AUTHORIZATION_KEY=<secret_key_from_usajobs>
+ADMIN_REFRESH_TOKEN=<long_random_secret_value>
 ```
 
 For Neon, use the connection string with a password, for example:
@@ -125,5 +126,17 @@ After the env update, redeploy Vercel: dashboard -> `gis-job-portal` -> Deployme
 If a 404 appears, check the project id, team id, endpoint version, and token team access.
 
 Expected result: the Vercel dashboard badge says `Live API`, not `Demo Mode`, and real jobs load from `https://gisjobportal.onrender.com`.
+
+## Refreshing Hosted Jobs
+
+Set `ADMIN_REFRESH_TOKEN` in Render, not Vercel. Use a long random value, then redeploy Render.
+
+Run a hosted refresh from your local machine:
+
+```powershell
+python scripts\admin_refresh_hosted.py --url https://gisjobportal.onrender.com
+```
+
+The script prompts locally for `ADMIN_REFRESH_TOKEN`, sends it only as the `X-Admin-Refresh-Token` header, and prints a safe summary. After refresh, `/reports/latest` should return the hosted daily digest from Postgres. Later this can move to a provider cron/worker; applications still require manual review and submission.
 
 Do not upload private resume/transcript files, generated packets, `.env` files, or local SQLite database files.

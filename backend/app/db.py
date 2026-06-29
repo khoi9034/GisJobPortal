@@ -282,6 +282,15 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 profile_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS daily_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_date TEXT NOT NULL,
+                generated_at TEXT NOT NULL,
+                source TEXT DEFAULT '',
+                summary_json TEXT DEFAULT '{}',
+                report_markdown TEXT DEFAULT ''
+            );
             """
         if is_postgres_conn(conn):
             schema = schema.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
@@ -494,6 +503,32 @@ def record_source_validation(source: dict[str, Any], summary: dict[str, Any], pa
                 source["name"],
             ),
         )
+
+
+def save_daily_report(report_date: str, generated_at: str, source: str, summary: dict[str, Any], markdown: str, path: Path | str = DB_PATH) -> None:
+    init_db(path)
+    with connection(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO daily_reports (report_date, generated_at, source, summary_json, report_markdown)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (report_date, generated_at, source, dumps(summary), markdown),
+        )
+
+
+def latest_daily_report(path: Path | str = DB_PATH) -> dict[str, Any]:
+    init_db(path)
+    with connection(path) as conn:
+        row = conn.execute("SELECT * FROM daily_reports ORDER BY generated_at DESC, id DESC LIMIT 1").fetchone()
+    if not row:
+        return {"exists": False, "date": "", "text": "No hosted report generated yet.", "summary": {}}
+    item = dict(row)
+    try:
+        summary = json.loads(item.get("summary_json") or "{}")
+    except json.JSONDecodeError:
+        summary = {}
+    return {"exists": True, "date": item.get("report_date", ""), "text": item.get("report_markdown", ""), "summary": summary, "source": item.get("source", "")}
 
 
 def duplicate_key(job: dict[str, Any]) -> tuple[str, str, str, str]:

@@ -12,7 +12,7 @@ from . import db
 from .freshness import apply_freshness
 from .paths import ROOT, SAMPLE_JOBS_PATH, load_backend_env
 from .profile import load_profile
-from .reports import write_daily_report
+from .reports import summary_counts, write_daily_report
 from .scoring import score_job
 from .sources import load_sources
 
@@ -327,5 +327,13 @@ def refresh_jobs(
         **bands,
     }
     report_path = write_daily_report(result, active_jobs, report_dir) if report_dir else write_daily_report(result, active_jobs)
+    db.save_daily_report(
+        report_path.stem.removeprefix("daily_review_"),
+        db.now_iso(),
+        "refresh_jobs",
+        summary_counts(result),
+        report_path.read_text(encoding="utf-8"),
+        db_path,
+    )
     result["daily_report_path"] = str(report_path)
     return result

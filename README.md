@@ -136,6 +136,22 @@ The refresh command reports sources checked, disabled sources skipped, jobs coll
 
 Duplicate jobs are not reinserted. Refresh updates `last_seen_at`, source close/update dates, freshness fields, and scoring while preserving user status such as saved or applied.
 
+## Refreshing Hosted Jobs
+
+Set this in Render only:
+
+```text
+ADMIN_REFRESH_TOKEN=replace_with_long_random_secret
+```
+
+Do not add it to Vercel or any frontend env file. After Render redeploys, run:
+
+```powershell
+python scripts\admin_refresh_hosted.py --url https://gisjobportal.onrender.com
+```
+
+The script prompts locally for the token, calls the admin refresh endpoint, and prints a safe summary. The app never auto-applies, logs into portals, or sends emails.
+
 Freshness defaults live in `config/application_rules.yaml`:
 
 ```yaml

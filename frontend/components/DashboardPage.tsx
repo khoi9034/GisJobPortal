@@ -742,7 +742,14 @@ function Header({
             <span className="chip">Last refresh: {meta.lastRefresh}</span>
           </div>
         </div>
-        <button className="button primary" onClick={onRefresh}>Refresh Jobs</button>
+        {meta.mode === "Live API" ? (
+          <div>
+            <button className="button primary" disabled>Hosted refresh admin-only</button>
+            <p className="muted">Run the admin refresh script or scheduled backend refresh.</p>
+          </div>
+        ) : (
+          <button className="button primary" onClick={onRefresh}>Refresh Jobs</button>
+        )}
       </div>
       {message && <p className="muted">{message}</p>}
     </>
