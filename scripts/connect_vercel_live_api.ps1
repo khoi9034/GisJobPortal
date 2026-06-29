@@ -1,25 +1,27 @@
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-Set-Location $RepoRoot
-
 $ProjectName = "gis-job-portal"
 $ProjectId = "prj_7rRCF8pTAJBrxMQZtsjBgvNYiKGI"
 $TeamId = "team_NnrpDjazbXYZNE9Sqb9iTIKv"
 $BackendUrl = "https://gisjobportal.onrender.com"
 $LiveSite = "https://gis-job-portal.vercel.app"
-$VercelApiBase = "https://api.vercel.com"
+$EnvEndpoint = "https://api.vercel.com/v10/projects/$ProjectId/env?teamId=$TeamId"
 $Targets = @("production", "preview", "development")
 
 trap {
-  $env:VERCEL_TOKEN = $null
-  $Token = $null
-  $SecureToken = $null
+  Clear-VercelToken
   Write-Host ""
   Write-Host "Vercel connection failed: $($_.Exception.Message)"
+  Show-FailureHint "$($_.Exception.Message)"
   Write-Host "No token was saved. Check the message above, then retry this script."
   $null = Read-Host "Press Enter to close"
   exit 1
+}
+
+function Clear-VercelToken {
+  $script:Token = $null
+  $script:SecureToken = $null
 }
 
 function Convert-ToPlainText([securestring]$SecureValue) {
@@ -31,35 +33,72 @@ function Convert-ToPlainText([securestring]$SecureValue) {
   }
 }
 
-function Invoke-VercelApi($Method, $Path, $Body = $null) {
+function Redact-Secret([string]$Text) {
+  if ($script:Token) { return $Text.Replace($script:Token, "[redacted]") }
+  $Text
+}
+
+function Show-FailureHint([string]$Text) {
+  if ($Text -match "404|not found") {
+    Write-Host "404 hint: check project id, team id, endpoint version, and token team access."
+  } elseif ($Text -match "401|403|unauthorized|forbidden") {
+    Write-Host "Auth hint: check Vercel token permissions and team access."
+  }
+}
+
+function Get-SafeErrorBody($ErrorRecord) {
+  $Response = $ErrorRecord.Exception.Response
+  if ($null -eq $Response) { return $ErrorRecord.Exception.Message }
+  try {
+    $Stream = $Response.GetResponseStream()
+    if ($null -eq $Stream) { return $ErrorRecord.Exception.Message }
+    $Reader = [IO.StreamReader]::new($Stream)
+    $Reader.ReadToEnd()
+  } catch {
+    $ErrorRecord.Exception.Message
+  }
+}
+
+function Invoke-VercelApi([string]$Method, [string]$Uri, $Body = $null) {
   $Headers = @{
-    Authorization = "Bearer $env:VERCEL_TOKEN"
+    Authorization = "Bearer $script:Token"
     Accept = "application/json"
+    "Content-Type" = "application/json"
   }
   $Params = @{
     Method = $Method
-    Uri = "$VercelApiBase$Path"
+    Uri = $Uri
     Headers = $Headers
     TimeoutSec = 45
   }
   if ($null -ne $Body) {
-    $Params.ContentType = "application/json"
     $Params.Body = ($Body | ConvertTo-Json -Depth 8)
   }
-  Invoke-RestMethod @Params
+  try {
+    Invoke-RestMethod @Params
+  } catch {
+    $Status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { "unknown" }
+    $SafeBody = Redact-Secret (Get-SafeErrorBody $_)
+    Write-Host "Vercel API error status: $Status"
+    if ($SafeBody) { Write-Host "Vercel API safe response: $SafeBody" }
+    Show-FailureHint "$Status $SafeBody"
+    throw "Vercel API request failed: $Method $Uri"
+  }
 }
 
-function Get-Prop($Object, [string[]]$Names) {
-  foreach ($Name in $Names) {
-    $Current = $Object
-    foreach ($Part in $Name.Split(".")) {
-      if ($null -eq $Current) { break }
-      $Property = $Current.PSObject.Properties[$Part]
-      $Current = if ($Property) { $Property.Value } else { $null }
-    }
-    if ($null -ne $Current -and "$Current" -ne "") { return $Current }
+function Get-EnvRows($Response) {
+  if ($Response -is [array]) { return @($Response) }
+  foreach ($Name in @("envs", "envVars", "items")) {
+    $Prop = $Response.PSObject.Properties[$Name]
+    if ($Prop) { return @($Prop.Value) }
   }
-  "unknown"
+  @()
+}
+
+function Format-Targets($Value) {
+  if ($Value -is [array]) { return ($Value -join ", ") }
+  if ($null -eq $Value -or "$Value" -eq "") { return "unknown" }
+  "$Value"
 }
 
 function Test-BackendReady {
@@ -71,45 +110,34 @@ function Test-BackendReady {
   return $ExitCode -eq 0 -and ($Output -match "production ready: yes")
 }
 
-function Set-VercelEnv($Name, $Value) {
+function Set-VercelEnv([string]$Name, [string]$Value, [string]$Comment) {
   $Body = @{
     key = $Name
     value = $Value
     type = "plain"
     target = $Targets
-    comment = "GisJobPortal live API setting"
+    comment = $Comment
   }
-  $Response = Invoke-VercelApi "Post" "/v10/projects/$ProjectId/env?upsert=true&teamId=$TeamId" $Body
-  $Failed = @($Response.failed)
-  if ($Failed.Count -gt 0) {
-    throw "Vercel env update failed for $Name."
-  }
-  Write-Host "- ${Name}: set for $($Targets -join ", ")"
+  $null = Invoke-VercelApi "Post" "$EnvEndpoint&upsert=true" $Body
+  Write-Host "- ${Name}: updated/created for $($Targets -join ", ")"
 }
 
-function Get-LatestProductionDeployment {
-  $Response = Invoke-VercelApi "Get" "/v7/deployments?projectId=$ProjectId&target=production&limit=1&teamId=$TeamId"
-  $Deployments = @($Response.deployments)
-  if ($Deployments.Count -eq 0) { return $null }
-  $Deployments[0]
-}
-
-function Wait-ForDeployment($DeploymentId) {
-  for ($Attempt = 1; $Attempt -le 12; $Attempt++) {
-    Start-Sleep -Seconds 20
-    $Latest = Get-LatestProductionDeployment
-    $LatestId = Get-Prop $Latest @("uid", "id")
-    $State = Get-Prop $Latest @("state", "readyState")
-    if ($LatestId -eq $DeploymentId -or $Attempt -eq 1) {
-      Write-Host "- deployment state: $State"
+function Confirm-VercelEnv {
+  $Response = Invoke-VercelApi "Get" $EnvEndpoint
+  $Rows = @(Get-EnvRows $Response)
+  foreach ($Name in @("NEXT_PUBLIC_API_MODE", "NEXT_PUBLIC_API_BASE_URL")) {
+    $Matches = @($Rows | Where-Object { $_.key -eq $Name })
+    if ($Matches.Count -eq 0) { throw "Missing Vercel env var after update: $Name" }
+    foreach ($Row in $Matches) {
+      $TargetsText = Format-Targets $Row.target
+      $UpdatedAt = if ($Row.updatedAt) { $Row.updatedAt } else { "unknown" }
+      Write-Host "- ${Name}: targets=$TargetsText updatedAt=$UpdatedAt"
     }
-    if ($LatestId -eq $DeploymentId -and $State -eq "READY") { return $true }
-    if ($LatestId -eq $DeploymentId -and $State -in @("ERROR", "CANCELED")) { return $false }
   }
-  return $false
 }
 
-Write-Host "This will connect Vercel project '$ProjectName' to the live Render API."
+Set-Location $RepoRoot
+Write-Host "This will set Vercel live API environment variables for '$ProjectName'."
 Write-Host "- project id: $ProjectId"
 Write-Host "- team id: $TeamId"
 Write-Host "- backend: $BackendUrl"
@@ -124,60 +152,32 @@ if (-not (Test-BackendReady)) {
 }
 
 Write-Host ""
-$SecureToken = Read-Host "Paste Vercel token, then press Enter:" -AsSecureString
-$Token = Convert-ToPlainText $SecureToken
-$env:VERCEL_TOKEN = $Token
+$script:SecureToken = Read-Host "Paste Vercel token, then press Enter" -AsSecureString
+$script:Token = Convert-ToPlainText $script:SecureToken
 
 try {
   Write-Host ""
-  Write-Host "Vercel project"
-  $Project = Invoke-VercelApi "Get" "/v9/projects/$ProjectId?teamId=$TeamId"
-  Write-Host "- name: $(Get-Prop $Project @("name"))"
-  Write-Host "- id: $(Get-Prop $Project @("id"))"
-  Write-Host "- framework: $(Get-Prop $Project @("framework"))"
-  Write-Host "- root directory: $(Get-Prop $Project @("rootDirectory", "settings.rootDirectory"))"
+  Write-Host "Verifying Vercel project access"
+  $null = Invoke-VercelApi "Get" $EnvEndpoint
+  Write-Host "- access ok"
 
   Write-Host ""
-  Write-Host "Setting Vercel environment variables"
-  Set-VercelEnv "NEXT_PUBLIC_API_MODE" "api"
-  Set-VercelEnv "NEXT_PUBLIC_API_BASE_URL" $BackendUrl
+  Write-Host "Upserting Vercel environment variables"
+  Set-VercelEnv "NEXT_PUBLIC_API_MODE" "api" "Use hosted Render API for real job data"
+  Set-VercelEnv "NEXT_PUBLIC_API_BASE_URL" $BackendUrl "Hosted GIS Job Portal backend API"
 
   Write-Host ""
-  Write-Host "Triggering production redeploy"
-  $Previous = Get-LatestProductionDeployment
-  if ($null -eq $Previous) {
-    throw "No production deployment found to redeploy. Trigger deploy from the Vercel dashboard."
-  }
-  $PreviousId = Get-Prop $Previous @("uid", "id")
-  $DeployBody = @{
-    deploymentId = $PreviousId
-    name = $ProjectName
-    project = $ProjectId
-    target = "production"
-    withLatestCommit = $true
-  }
-  $Deploy = Invoke-VercelApi "Post" "/v13/deployments?teamId=$TeamId" $DeployBody
-  $DeployId = Get-Prop $Deploy @("uid", "id")
-  $DeployUrl = Get-Prop $Deploy @("url")
-  Write-Host "- deployment id: $DeployId"
-  Write-Host "- deployment url: $DeployUrl"
+  Write-Host "Verifying environment variables exist"
+  Confirm-VercelEnv
 
-  if (Wait-ForDeployment $DeployId) {
-    Write-Host "- deployment ready"
-    try {
-      $Response = Invoke-WebRequest -UseBasicParsing -Uri $LiveSite -TimeoutSec 30
-      Write-Host "- live site HTTP: $($Response.StatusCode)"
-      Write-Host "Expected result: the dashboard badge says Live API and real jobs load from $BackendUrl."
-    } catch {
-      Write-Host "Live site check failed: $($_.Exception.Message)"
-    }
-  } else {
-    Write-Host "Deployment was triggered but did not become ready during this check. Check Vercel Deployments."
-  }
+  Write-Host ""
+  Write-Host "Manual redeploy required:"
+  Write-Host "1. Open Vercel dashboard -> gis-job-portal -> Deployments."
+  Write-Host "2. Open the latest production deployment."
+  Write-Host "3. Click Redeploy."
+  Write-Host "4. After it finishes, refresh $LiveSite and confirm the badge says Live API."
 } finally {
-  $env:VERCEL_TOKEN = $null
-  $Token = $null
-  $SecureToken = $null
+  Clear-VercelToken
 }
 
 Write-Host ""

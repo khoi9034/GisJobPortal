@@ -113,7 +113,16 @@ cd C:\Dev\GisJobPortal
 .\scripts\connect_vercel_live_api.ps1
 ```
 
-The helper prompts locally for your Vercel token with `Read-Host -AsSecureString`. It does not save the token, write it to `.env`, or commit it. It checks `https://gisjobportal.onrender.com`, sets `NEXT_PUBLIC_API_MODE=api` and `NEXT_PUBLIC_API_BASE_URL=https://gisjobportal.onrender.com` for Production, Preview, and Development, then triggers a production redeploy.
+The helper prompts locally for your Vercel token with `Read-Host -AsSecureString`. It does not save the token, write it to `.env`, or commit it. It checks `https://gisjobportal.onrender.com`, uses the Vercel REST v10 project env endpoint, and sets these public `NEXT_PUBLIC` values for Production, Preview, and Development:
+
+```text
+NEXT_PUBLIC_API_MODE=api
+NEXT_PUBLIC_API_BASE_URL=https://gisjobportal.onrender.com
+```
+
+After the env update, redeploy Vercel: dashboard -> `gis-job-portal` -> Deployments -> latest production deployment -> Redeploy.
+
+If a 404 appears, check the project id, team id, endpoint version, and token team access.
 
 Expected result: the Vercel dashboard badge says `Live API`, not `Demo Mode`, and real jobs load from `https://gisjobportal.onrender.com`.
 

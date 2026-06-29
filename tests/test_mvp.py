@@ -406,9 +406,14 @@ class MvpTests(unittest.TestCase):
         self.assertIn("prj_7rRCF8pTAJBrxMQZtsjBgvNYiKGI", text)
         self.assertIn("team_NnrpDjazbXYZNE9Sqb9iTIKv", text)
         self.assertIn("https://gisjobportal.onrender.com", text)
-        self.assertIn("Read-Host \"Paste Vercel token, then press Enter:\" -AsSecureString", text)
-        self.assertIn("Authorization = \"Bearer $env:VERCEL_TOKEN\"", text)
-        self.assertNotRegex(text, r"vcp_[A-Za-z0-9]|Authorization = \"Bearer [^$]")
+        self.assertIn("https://api.vercel.com/v10/projects/$ProjectId/env?teamId=$TeamId", text)
+        self.assertIn("upsert=true", text)
+        self.assertIn("Read-Host \"Paste Vercel token, then press Enter\" -AsSecureString", text)
+        self.assertIn("Authorization = \"Bearer $script:Token\"", text)
+        self.assertNotIn("Invoke-VercelCli", text)
+        self.assertNotIn('@("--team', text)
+        self.assertNotIn('@("--scope', text)
+        self.assertNotRegex(text, r"vcp_[A-Za-z0-9]|--token|Authorization = \"Bearer [^$]")
         self.assertNotRegex(text, r"(Set-Content|Out-File|Add-Content).*(Token|VERCEL_TOKEN|Vercel token)")
 
     def test_render_docs_do_not_contain_secret_values(self):
