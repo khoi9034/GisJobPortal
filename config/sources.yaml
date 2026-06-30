@@ -220,6 +220,40 @@ sources:
     quality_score: 45
     terms_notes: Public Remotive API only; no scraping.
     notes: Disabled public remote jobs API source; enable only if remote GIS/data roles are useful.
+  - name: LinkedIn Job Alerts Email
+    type: linkedin_email_alert
+    url: gmail://job-alerts/linkedin
+    enabled: false
+    coverage_tier: big_board_email_alert
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only unless the email includes a reliable posting date.
+    dedupe_priority: 75
+    quality_score: 65
+    terms_notes: Reads authorized Gmail job-alert emails only; does not scrape or log into LinkedIn.
+    notes: Disabled until Gmail ingestion is authorized and configured.
+  - name: Indeed Job Alerts Email
+    type: indeed_email_alert
+    url: gmail://job-alerts/indeed
+    enabled: false
+    coverage_tier: big_board_email_alert
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only unless the email includes a reliable posting date.
+    dedupe_priority: 75
+    quality_score: 65
+    terms_notes: Reads authorized Gmail job-alert emails only; does not scrape or log into Indeed.
+    notes: Disabled until Gmail ingestion is authorized and configured.
   - name: NC Government Jobs
     type: static_url
     url: https://www.governmentjobs.com/careers/northcarolina

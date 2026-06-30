@@ -27,6 +27,11 @@ if __name__ == "__main__":
     print(f"- applied follow-ups needed: {result['applied_followups_needed']}")
     print(f"- follow-ups due: {result.get('follow_up_due_jobs', 0)}")
     print(f"- strong/excellent matches 70+: {result['high_matches']}")
+    print(f"- email alert sources checked: {result.get('email_alert_sources_checked', 0)}")
+    print(f"- alert emails parsed: {result.get('alert_emails_parsed', 0)}")
+    print(f"- alert jobs inserted: {result.get('alert_jobs_inserted', 0)}")
+    print(f"- alert duplicates updated: {result.get('alert_duplicates_updated', 0)}")
+    print(f"- Gmail configured: {'yes' if result.get('gmail_configured') else 'no'}")
     if result["errors"]:
         print("- source errors:")
         for source, message in result["errors"].items():

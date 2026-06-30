@@ -378,6 +378,40 @@ python scripts\refresh_jobs.py
 
 The app preserves API attribution with `source`, `original_source`, and `attribution_note`, then deduplicates by normalized company/title/location and canonical apply URL. Broad API sources also support per-source quality controls like `min_score_by_source`, `max_jobs_per_source_per_refresh`, title keywords, seniority exclusions, and remote inclusion. Apply Today filters low-score broad API noise so high-value real postings stay first.
 
+## LinkedIn / Indeed Email Alert Ingestion
+
+LinkedIn and Indeed coverage is supported through Gmail job-alert emails, not scraping. Create alerts manually on LinkedIn/Indeed, let the emails arrive in Gmail, then ingest only those alert messages.
+
+Current MVP:
+
+- parser and bulk pasted-email fallback are implemented.
+- Gmail API fetch is guarded and skips cleanly until OAuth credentials/token are configured.
+- no LinkedIn/Indeed scraping, login automation, browser bots, auto-apply, or email sending.
+
+Local placeholder config in `backend/.env`:
+
+```text
+GMAIL_INGESTION_ENABLED=false
+GMAIL_CLIENT_ID=replace_with_local_secret_only
+GMAIL_CLIENT_SECRET=replace_with_local_secret_only
+GMAIL_TOKEN_PATH=runtime/secrets/gmail_token.local.json
+GMAIL_ALERT_QUERY=(from:linkedin.com OR from:indeed.com) newer_than:14d
+```
+
+Run the safe skeleton:
+
+```powershell
+python scripts\ingest_gmail_job_alerts.py
+```
+
+Test parser import without OAuth:
+
+```powershell
+python scripts\ingest_gmail_job_alerts.py --source-hint linkedin --text-file path\to\alert.txt
+```
+
+See `docs/GMAIL_JOB_ALERT_INGESTION.md`.
+
 ## Private Documents
 
 Put your resume PDF in `private/resume/`, then run:

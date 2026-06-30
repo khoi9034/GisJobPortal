@@ -125,6 +125,11 @@ export type Source = {
   freshness_confidence_default?: string;
   coverage_tier?: string;
   requires_api_key?: boolean;
+  requires_oauth?: boolean;
+  scraping_supported?: boolean;
+  auto_apply_supported?: boolean;
+  gmail_configured?: boolean | null;
+  gmail_alert_query?: string;
   credentials_configured?: boolean;
   credential_missing?: boolean;
   terms_notes?: string;

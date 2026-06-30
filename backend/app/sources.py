@@ -7,7 +7,18 @@ import yaml
 
 from .paths import SEARCH_PROFILES_PATH, SOURCES_PATH
 
-SOURCE_TYPES = {"api", "rss", "greenhouse", "lever", "static_url", "manual"}
+SOURCE_TYPES = {
+    "api",
+    "rss",
+    "greenhouse",
+    "lever",
+    "static_url",
+    "manual",
+    "linkedin_email_alert",
+    "indeed_email_alert",
+    "job_alert_email",
+    "gmail_job_alerts",
+}
 
 
 def load_sources(path: Path | str = SOURCES_PATH) -> list[dict[str, Any]]:

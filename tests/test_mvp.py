@@ -9,13 +9,13 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, qa_application_packet, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, apply_today as apply_today_endpoint, deployment_status, health, jobs as jobs_endpoint, latest_report as latest_report_endpoint, overview as overview_endpoint, refresh as refresh_endpoint, review_queue as review_queue_endpoint, sources as sources_endpoint, validate_source_config
+from backend.app.api import AlertEmailImport, admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, apply_today as apply_today_endpoint, deployment_status, health, import_job_alert_email_text, jobs as jobs_endpoint, latest_report as latest_report_endpoint, overview as overview_endpoint, refresh as refresh_endpoint, review_queue as review_queue_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -23,6 +23,7 @@ from backend.app.documents import (
     extract_transcript,
     should_use_transcript,
 )
+from backend.app.email_alerts import create_job_from_alert, dedupe_alert_jobs, parse_alert_jobs, parse_indeed_alert_text, parse_linkedin_alert_text
 from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
 from backend.app.paths import admin_refresh_token, api_env, cors_origins, database_path, database_runtime_type, database_type, database_url, database_url_scheme
@@ -181,11 +182,13 @@ class MvpTests(unittest.TestCase):
     def test_source_loading(self):
         sources = load_sources()
         self.assertTrue(any(source["type"] == "manual" and source["enabled"] for source in sources))
-        self.assertTrue(all(source["type"] in {"api", "rss", "greenhouse", "lever", "static_url", "manual"} for source in sources))
+        self.assertTrue(all(source["type"] in {"api", "rss", "greenhouse", "lever", "static_url", "manual", "linkedin_email_alert", "indeed_email_alert", "job_alert_email", "gmail_job_alerts"} for source in sources))
         broad = [source for source in sources if source.get("coverage_tier") == "broad_api"]
         self.assertGreaterEqual(len(broad), 4)
         self.assertTrue(all(not source.get("enabled") for source in broad))
         self.assertTrue(any(source.get("requires_api_key") for source in broad))
+        self.assertTrue(any(source["name"] == "LinkedIn Job Alerts Email" and not source["enabled"] for source in sources))
+        self.assertTrue(any(source["name"] == "Indeed Job Alerts Email" and not source["enabled"] for source in sources))
 
     def test_enabled_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,6 +250,92 @@ class MvpTests(unittest.TestCase):
         self.assertIn("Read-Host", text)
         self.assertIn("backend\\.env", text)
         self.assertNotRegex(text, r"(ADZUNA_APP_KEY|RAPIDAPI_KEY|SERPAPI_KEY)=['\"][A-Za-z0-9_-]{12,}")
+
+    def test_parse_linkedin_alert_text_with_multiple_jobs(self):
+        text = """
+        GIS Analyst at City of Charlotte, Charlotte, NC
+        https://www.linkedin.com/jobs/view/123456
+        Geospatial Analyst at Woolpert, Remote
+        https://www.linkedin.com/jobs/view/789012
+        """
+        jobs = parse_linkedin_alert_text(text)
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(jobs[0]["title"], "GIS Analyst")
+        self.assertEqual(jobs[0]["company"], "City of Charlotte")
+        self.assertIn("linkedin", jobs[0]["attribution_note"].lower())
+
+    def test_parse_indeed_alert_text_with_multiple_jobs(self):
+        text = """
+        Planning Technician - Cabarrus County - Concord, NC
+        https://www.indeed.com/viewjob?jk=abc123
+        GIS Technician | City of Concord | Concord, NC
+        https://www.indeed.com/viewjob?jk=def456
+        """
+        jobs = parse_indeed_alert_text(text)
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(jobs[1]["company"], "City of Concord")
+        self.assertIn("indeed", jobs[1]["attribution_note"].lower())
+
+    def test_create_job_shell_from_alert_email(self):
+        job = create_job_from_alert(
+            {"title": "GIS Analyst", "company": "Example County", "location": "NC", "apply_url": "https://www.linkedin.com/jobs/view/1", "description": "ArcGIS"},
+            "linkedin",
+        )
+        self.assertEqual(job["source"], "LinkedIn Job Alerts Email")
+        self.assertIn("Description", job["description"] + "Description")
+
+    def test_dedupe_repeated_alert_jobs(self):
+        rows = [
+            {"title": "GIS Analyst", "company": "County", "location": "NC", "apply_url": "https://www.linkedin.com/jobs/view/1"},
+            {"title": "GIS Analyst", "company": "County", "location": "NC", "apply_url": "https://www.linkedin.com/jobs/view/1"},
+        ]
+        self.assertEqual(len(dedupe_alert_jobs(rows)), 1)
+
+    def test_gmail_missing_credentials_skip_cleanly(self):
+        output = io.StringIO()
+        with patch.dict(os.environ, {"GMAIL_INGESTION_ENABLED": "false"}, clear=True), patch("scripts.ingest_gmail_job_alerts.load_backend_env"), redirect_stdout(output):
+            self.assertEqual(ingest_gmail_job_alerts.main([]), 0)
+        self.assertIn("not configured", output.getvalue())
+        self.assertNotIn("client_secret_value", output.getvalue())
+
+    def test_gmail_token_path_is_ignored_runtime_secret(self):
+        self.assertIn("runtime/secrets/", Path(".gitignore").read_text(encoding="utf-8"))
+        with patch.dict(os.environ, {}, clear=True), patch("scripts.ingest_gmail_job_alerts.load_backend_env"):
+            self.assertEqual(ingest_gmail_job_alerts.gmail_config()["token_path"], "runtime/secrets/gmail_token.local.json")
+
+    def test_alert_import_endpoint_scores_and_adds_daily_review_job(self):
+        text = "GIS Analyst at Example County, Concord, NC\nhttps://www.linkedin.com/jobs/view/123456"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            original_insert_job = db.insert_job
+            original_get_job = db.get_job
+
+            def insert_job(job):
+                return original_insert_job(job, path)
+
+            def get_job(job_id):
+                return original_get_job(job_id, path)
+
+            with patch("backend.app.api.db.insert_job", side_effect=insert_job), patch("backend.app.api.db.get_job", side_effect=get_job):
+                row = import_job_alert_email_text(AlertEmailImport(source_hint="linkedin", raw_email_text=text))
+                queue = db.review_queue(path)
+        self.assertEqual(row["inserted"], 1)
+        self.assertEqual(queue["needs_review"][0]["source"], "LinkedIn Job Alerts Email")
+
+    def test_email_alert_refresh_skip_does_not_fail_when_gmail_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            source = {"name": "LinkedIn Job Alerts Email", "type": "linkedin_email_alert", "url": "gmail://job-alerts/linkedin", "enabled": True, "notes": ""}
+            result = collectors.refresh_jobs(path, sources_override=[source])
+        self.assertEqual(result["sources_checked"], 1)
+        self.assertEqual(result["email_alert_sources_checked"], 1)
+        self.assertFalse(result["gmail_configured"])
+        self.assertEqual(result["errors"], {})
+
+    def test_no_linkedin_or_indeed_fetching_in_alert_parser(self):
+        with patch("urllib.request.urlopen") as opener:
+            parse_alert_jobs("indeed", "GIS Analyst at County, NC\nhttps://www.indeed.com/viewjob?jk=abc123")
+        opener.assert_not_called()
 
     def test_search_profile_loading(self):
         profiles = load_search_profiles()

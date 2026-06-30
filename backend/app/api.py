@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import Any
 
@@ -18,8 +19,9 @@ from .documents import (
     resume_summary,
     transcript_summary,
 )
+from .email_alerts import parse_alert_jobs
 from .materials import generate_materials
-from .paths import ROOT, admin_refresh_token, api_env, cors_origins, database_runtime_type, database_type, database_url_present, database_url_scheme
+from .paths import ROOT, admin_refresh_token, api_env, cors_origins, database_runtime_type, database_type, database_url_present, database_url_scheme, load_backend_env
 from .profile import load_profile
 from .reports import latest_report as latest_daily_report
 from .reports import redact
@@ -92,6 +94,11 @@ class SourceIn(BaseModel):
     freshness_confidence_default: str | None = None
 
 
+class AlertEmailImport(BaseModel):
+    source_hint: str
+    raw_email_text: str
+
+
 def ensure_seeded() -> None:
     db.init_db()
     if not db.list_jobs():
@@ -127,6 +134,11 @@ def refresh_summary(result: dict[str, Any]) -> dict[str, Any]:
         "strong_excellent_matches": result.get("high_matches", 0),
         "source_errors": errors,
         "report_generated": bool(result.get("daily_report_path")),
+        "email_alert_sources_checked": result.get("email_alert_sources_checked", 0),
+        "alert_emails_parsed": result.get("alert_emails_parsed", 0),
+        "alert_jobs_inserted": result.get("alert_jobs_inserted", 0),
+        "alert_duplicates_updated": result.get("alert_duplicates_updated", 0),
+        "gmail_configured": result.get("gmail_configured", False),
     }
 
 
@@ -198,6 +210,26 @@ def job(job_id: int) -> dict[str, Any]:
 def refresh(x_admin_refresh_token: str | None = Header(default=None, alias="X-Admin-Refresh-Token")) -> dict[str, Any]:
     require_admin_refresh_token(x_admin_refresh_token)
     return refresh_summary(refresh_jobs())
+
+
+@app.post("/imports/job-alert-email-text")
+def import_job_alert_email_text(payload: AlertEmailImport, x_admin_refresh_token: str | None = Header(default=None, alias="X-Admin-Refresh-Token")) -> dict[str, Any]:
+    require_admin_refresh_token(x_admin_refresh_token)
+    source_hint = payload.source_hint.lower().strip()
+    if source_hint not in {"linkedin", "indeed"}:
+        raise HTTPException(status_code=400, detail="source_hint must be linkedin or indeed")
+    profile = load_profile()
+    inserted = duplicates = 0
+    jobs: list[dict[str, Any]] = []
+    for job in parse_alert_jobs(source_hint, payload.raw_email_text):
+        scored = {**job, **score_job(job, profile)}
+        job_id, duplicate = db.insert_job(scored)
+        duplicates += int(duplicate)
+        inserted += int(not duplicate)
+        stored = db.get_job(job_id) if job_id else None
+        if stored:
+            jobs.append(stored)
+    return {"source": "LinkedIn Job Alerts Email" if source_hint == "linkedin" else "Indeed Job Alerts Email", "inserted": inserted, "duplicates_updated": duplicates, "jobs": jobs}
 
 
 @app.post("/admin/refresh-jobs")
@@ -393,6 +425,14 @@ def overview(include_sample: bool = False) -> dict[str, Any]:
 
 @app.get("/sources")
 def sources() -> list[dict[str, Any]]:
+    load_backend_env()
+    gmail_token_path = os.getenv("GMAIL_TOKEN_PATH", "runtime/secrets/gmail_token.local.json")
+    gmail_configured = (
+        os.getenv("GMAIL_INGESTION_ENABLED", "false").lower() == "true"
+        and bool(os.getenv("GMAIL_CLIENT_ID", "").strip())
+        and bool(os.getenv("GMAIL_CLIENT_SECRET", "").strip())
+        and (ROOT / gmail_token_path).exists()
+    )
     configured = load_sources()
     try:
         saved = {source["name"]: source for source in db.list_sources()}
@@ -420,6 +460,8 @@ def sources() -> list[dict[str, Any]]:
         row.setdefault("validation_status", "disabled" if not row.get("enabled") else row.get("status", "unknown"))
         row["credentials_configured"] = not missing
         row["credential_missing"] = bool(missing)
+        row["gmail_configured"] = gmail_configured if row.get("coverage_tier") == "big_board_email_alert" else None
+        row["gmail_alert_query"] = os.getenv("GMAIL_ALERT_QUERY", "(from:linkedin.com OR from:indeed.com) newer_than:14d") if row.get("coverage_tier") == "big_board_email_alert" else ""
         row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0}))
         rows.append(row)
     return rows

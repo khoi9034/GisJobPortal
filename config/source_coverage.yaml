@@ -3,6 +3,9 @@ coverage_tiers:
     notes: Broad job search APIs; require credentials or explicit enablement.
     default_min_score_by_source: 40
     default_max_jobs_per_source_per_refresh: 60
+  big_board_email_alert:
+    notes: LinkedIn/Indeed coverage through authorized Gmail job alert emails only; no scraping.
+    default_min_score_by_source: 0
   public_ats:
     notes: Confirmed public ATS feeds such as Greenhouse and Lever.
     default_min_score_by_source: 0

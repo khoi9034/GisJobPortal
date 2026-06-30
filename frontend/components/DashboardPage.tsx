@@ -198,6 +198,7 @@ function sourceSummary(sources: Source[]) {
     unsupported,
     manualReview: sources.filter((source) => !source.enabled && ["manual", "static_url"].includes(source.type) && !/unsupported|login/i.test(source.notes)).length,
     broadApi: sources.filter((source) => source.coverage_tier === "broad_api" && source.enabled).length,
+    emailAlerts: sources.filter((source) => source.coverage_tier === "big_board_email_alert").length,
     publicAts: sources.filter((source) => source.coverage_tier === "public_ats" && source.enabled).length,
     governmentApi: sources.filter((source) => source.coverage_tier === "government_api" && source.enabled).length,
     credentialMissing: sources.filter((source) => source.requires_api_key && source.credential_missing).length,
@@ -218,6 +219,8 @@ export default function DashboardPage({ view }: { view: View }) {
   const [freshness, setFreshness] = useState<FreshnessFilter>("active");
   const [reviewFilters, setReviewFilters] = useState<ReviewFilters>({ freshOnly: false, highMatchOnly: false, closingSoon: false, unreviewedOnly: false, includeStale: false });
   const [message, setMessage] = useState("");
+  const [alertSource, setAlertSource] = useState("linkedin");
+  const [alertText, setAlertText] = useState("");
 
   async function load() {
     setLoaded(false);
@@ -267,6 +270,16 @@ export default function DashboardPage({ view }: { view: View }) {
     const rows = await api<Source[]>("/sources/validate");
     setSources(rows);
     setMessage("Source validation complete.");
+  }
+
+  async function importAlertText() {
+    const result = await api<{ inserted: number; duplicates_updated: number }>("/imports/job-alert-email-text", {
+      method: "POST",
+      body: JSON.stringify({ source_hint: alertSource, raw_email_text: alertText }),
+    });
+    setMessage(`Imported ${result.inserted} alert jobs, updated ${result.duplicates_updated} duplicates.`);
+    setAlertText("");
+    await load();
   }
 
   async function setStatus(job: Job, status: string) {
@@ -373,6 +386,7 @@ export default function DashboardPage({ view }: { view: View }) {
             <div className="stats">
               <div className="stat"><strong>{sourceCounts.active}</strong><span>Active sources</span></div>
               <div className="stat"><strong>{sourceCounts.broadApi}</strong><span>Active broad APIs</span></div>
+              <div className="stat"><strong>{sourceCounts.emailAlerts}</strong><span>Email alert sources</span></div>
               <div className="stat"><strong>{sourceCounts.publicAts}</strong><span>Active ATS</span></div>
               <div className="stat"><strong>{sourceCounts.governmentApi}</strong><span>Government APIs</span></div>
               <div className="stat"><strong>{sourceCounts.disabled}</strong><span>Disabled sources</span></div>
@@ -385,6 +399,14 @@ export default function DashboardPage({ view }: { view: View }) {
               <p key={source.name}>
                 <strong>{source.name}</strong> <span className="chip">{source.type}</span> {source.coverage_tier && <span className="chip">{source.coverage_tier.replaceAll("_", " ")}</span>} <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span>{source.requires_api_key && <span className={source.credentials_configured ? "chip green" : "chip warning"}>{source.credentials_configured ? "credentials present" : "credentials missing"}</span>}<br />
                 <span className="muted">{source.notes}</span>
+                {source.coverage_tier === "big_board_email_alert" && (
+                  <>
+                    <br />
+                    <span className="muted">
+                      Gmail ingestion: {source.gmail_configured ? "configured" : "not configured"} | Query: {source.gmail_alert_query || "not set"} | Safety: no scraping, no auto-apply
+                    </span>
+                  </>
+                )}
                 {(source.last_checked_at || source.last_checked || source.last_status) && (
                   <>
                     <br />
@@ -403,10 +425,25 @@ export default function DashboardPage({ view }: { view: View }) {
                   {source.max_jobs_per_source_per_refresh && <span className="chip">max {source.max_jobs_per_source_per_refresh}/refresh</span>}
                   {source.min_score_by_source && <span className="chip">min score {source.min_score_by_source}</span>}
                   {source.terms_notes && <span className="chip">terms noted</span>}
+                  {source.requires_oauth && <span className={source.gmail_configured ? "chip green" : "chip warning"}>{source.gmail_configured ? "Gmail configured" : "Gmail not configured"}</span>}
+                  {source.scraping_supported === false && <span className="chip">no scraping</span>}
+                  {source.auto_apply_supported === false && <span className="chip">no auto-apply</span>}
                 </div>
                 <ActivationChecklist source={source} />
               </p>
             ))}
+          </section>
+          <section className="settings-section">
+            <h3>Job Alert Ingestion</h3>
+            <p className="muted">LinkedIn/Indeed coverage comes from authorized Gmail job-alert emails. The portal does not scrape those sites, log in, or auto-apply.</p>
+            <p className="muted">Gmail setup: {sources.some((source) => source.coverage_tier === "big_board_email_alert" && source.gmail_configured) ? "configured" : "not configured"} | Imported alert jobs: {sources.filter((source) => source.coverage_tier === "big_board_email_alert").reduce((sum, source) => sum + (source.jobs_total || 0), 0)} | Pasted import is local/admin-only.</p>
+            <label className="muted" htmlFor="alert-source">Source</label>
+            <select id="alert-source" value={alertSource} onChange={(event) => setAlertSource(event.target.value)}>
+              <option value="linkedin">LinkedIn</option>
+              <option value="indeed">Indeed</option>
+            </select>
+            <textarea value={alertText} onChange={(event) => setAlertText(event.target.value)} placeholder="Paste a full job alert email here to test parsing." rows={7} />
+            <button className="button" onClick={importAlertText} disabled={!alertText.trim()}>Import Pasted Alert Text</button>
           </section>
           <section className="settings-section">
             <h3>AI Settings</h3>

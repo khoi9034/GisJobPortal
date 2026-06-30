@@ -28,6 +28,7 @@ USAJOBS_SEARCH_TERMS = [
 
 BROAD_API_PROVIDERS = {"adzuna", "jsearch", "serpapi", "remotive"}
 DEFAULT_BROAD_TERMS = USAJOBS_SEARCH_TERMS
+EMAIL_ALERT_TYPES = {"linkedin_email_alert", "indeed_email_alert", "job_alert_email", "gmail_job_alerts"}
 
 
 def plain_text(value: Any) -> str:
@@ -435,6 +436,8 @@ def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
         return []
     if source.get("coverage_tier") == "unsupported":
         return []
+    if source.get("type") in EMAIL_ALERT_TYPES:
+        return []
     if source["type"] == "manual":
         path = Path(source["url"])
         if not path.is_absolute():
@@ -463,6 +466,7 @@ def refresh_jobs(
     sources_override: list[dict[str, Any]] | None = None,
     report_dir: Path | None = None,
 ) -> dict[str, Any]:
+    load_backend_env()
     profile = load_profile()
     sources = sources_override or load_sources()
     db.init_db(db_path)
@@ -470,6 +474,7 @@ def refresh_jobs(
         db.upsert_source(source, db_path)
 
     new_jobs = duplicates = jobs_collected = jobs_scored = sources_checked = sources_skipped = marked_missing = 0
+    email_alert_sources_checked = alert_emails_parsed = alert_jobs_inserted = alert_duplicates_updated = 0
     errors: dict[str, str] = {}
     source_results: list[dict[str, Any]] = []
     for source in sources:
@@ -478,6 +483,8 @@ def refresh_jobs(
             db.mark_source_checked(source["name"], "disabled", db_path, jobs_found=0)
             continue
         sources_checked += 1
+        if source.get("type") in EMAIL_ALERT_TYPES:
+            email_alert_sources_checked += 1
         checked_at = db.now_iso()
         try:
             collected = collect_from_source(source)
@@ -502,9 +509,13 @@ def refresh_jobs(
             if duplicate:
                 duplicates += 1
                 source_duplicates += 1
+                if source.get("type") in EMAIL_ALERT_TYPES:
+                    alert_duplicates_updated += 1
                 continue
             new_jobs += 1
             inserted += 1
+            if source.get("type") in EMAIL_ALERT_TYPES:
+                alert_jobs_inserted += 1
         marked_missing += source_closed + db.mark_missing_jobs(source["name"], checked_at, collected, db_path)
         db.mark_source_checked(
             source["name"],
@@ -536,6 +547,11 @@ def refresh_jobs(
         "jobs_marked_missing_or_closed": marked_missing,
         "errors": errors,
         "source_results": source_results,
+        "email_alert_sources_checked": email_alert_sources_checked,
+        "alert_emails_parsed": alert_emails_parsed,
+        "alert_jobs_inserted": alert_jobs_inserted,
+        "alert_duplicates_updated": alert_duplicates_updated,
+        "gmail_configured": os.getenv("GMAIL_INGESTION_ENABLED", "false").lower() == "true",
         **db.review_counts(db_path, include_sample=include_sample),
         **counts,
         **bands,
