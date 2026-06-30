@@ -1,0 +1,38 @@
+coverage_tiers:
+  broad_api:
+    notes: Broad job search APIs; require credentials or explicit enablement.
+    default_min_score_by_source: 40
+    default_max_jobs_per_source_per_refresh: 60
+  public_ats:
+    notes: Confirmed public ATS feeds such as Greenhouse and Lever.
+    default_min_score_by_source: 0
+  government_api:
+    notes: Official public government APIs such as USAJobs.
+    default_min_score_by_source: 0
+  targeted_company:
+    notes: Company or agency career pages waiting for safe source confirmation.
+    default_min_score_by_source: 0
+  manual_review:
+    notes: Track manually; do not scrape or automate.
+    default_min_score_by_source: 0
+  unsupported:
+    notes: Login-gated or prohibited scraping sources; manual browser review only.
+    default_min_score_by_source: 0
+
+target_groups:
+  nc_counties:
+    notes: NC county GIS, planning, public works, tax, and land records teams.
+  nc_cities:
+    notes: City GIS, planning, transportation, utilities, and public works teams.
+  charlotte_metro_employers:
+    notes: Local public agencies, utilities, and private employers around Charlotte.
+  consulting_firms:
+    notes: GIS, planning, engineering, transportation, utilities, and location-intelligence firms.
+  unsupported_manual_only:
+    sources:
+      - LinkedIn
+      - Indeed
+      - Workday
+      - iCIMS
+      - Taleo
+      - Oracle Cloud

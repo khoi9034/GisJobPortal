@@ -191,12 +191,17 @@ function nextSourceAction(source: Source) {
 }
 
 function sourceSummary(sources: Source[]) {
-  const unsupported = sources.filter((source) => /unsupported|login|workday|linkedin|indeed/i.test(`${source.notes} ${source.url}`)).length;
+  const unsupported = sources.filter((source) => source.coverage_tier === "unsupported" || /unsupported|login|workday|linkedin|indeed/i.test(`${source.notes} ${source.url}`)).length;
   return {
     active: sources.filter((source) => source.enabled).length,
     disabled: sources.filter((source) => !source.enabled).length,
     unsupported,
     manualReview: sources.filter((source) => !source.enabled && ["manual", "static_url"].includes(source.type) && !/unsupported|login/i.test(source.notes)).length,
+    broadApi: sources.filter((source) => source.coverage_tier === "broad_api" && source.enabled).length,
+    publicAts: sources.filter((source) => source.coverage_tier === "public_ats" && source.enabled).length,
+    governmentApi: sources.filter((source) => source.coverage_tier === "government_api" && source.enabled).length,
+    credentialMissing: sources.filter((source) => source.requires_api_key && source.credential_missing).length,
+    sourceErrors: sources.filter((source) => source.last_error || source.errors_last_run || source.validation_status === "error").length,
   };
 }
 
@@ -367,13 +372,18 @@ export default function DashboardPage({ view }: { view: View }) {
             <button className="button" onClick={validateSources}>Validate Sources</button>
             <div className="stats">
               <div className="stat"><strong>{sourceCounts.active}</strong><span>Active sources</span></div>
+              <div className="stat"><strong>{sourceCounts.broadApi}</strong><span>Active broad APIs</span></div>
+              <div className="stat"><strong>{sourceCounts.publicAts}</strong><span>Active ATS</span></div>
+              <div className="stat"><strong>{sourceCounts.governmentApi}</strong><span>Government APIs</span></div>
               <div className="stat"><strong>{sourceCounts.disabled}</strong><span>Disabled sources</span></div>
               <div className="stat"><strong>{sourceCounts.manualReview}</strong><span>Manual review</span></div>
               <div className="stat"><strong>{sourceCounts.unsupported}</strong><span>Unsupported</span></div>
+              <div className="stat"><strong>{sourceCounts.credentialMissing}</strong><span>Credentials missing</span></div>
+              <div className="stat"><strong>{sourceCounts.sourceErrors}</strong><span>Source errors</span></div>
             </div>
             {sources.map((source) => (
               <p key={source.name}>
-                <strong>{source.name}</strong> <span className="chip">{source.type}</span> <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span><br />
+                <strong>{source.name}</strong> <span className="chip">{source.type}</span> {source.coverage_tier && <span className="chip">{source.coverage_tier.replaceAll("_", " ")}</span>} <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span>{source.requires_api_key && <span className={source.credentials_configured ? "chip green" : "chip warning"}>{source.credentials_configured ? "credentials present" : "credentials missing"}</span>}<br />
                 <span className="muted">{source.notes}</span>
                 {(source.last_checked_at || source.last_checked || source.last_status) && (
                   <>
@@ -384,12 +394,15 @@ export default function DashboardPage({ view }: { view: View }) {
                   </>
                 )}
                 <br />
-                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0} | sampled: {source.jobs_sampled ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
+                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0} | total visible: {source.jobs_total ?? 0} | strong matches: {source.strong_matches ?? 0} | sampled: {source.jobs_sampled ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
                 <div className="chips">
                   {(source.supports_posted_date || source.posted_date_supported) && <span className="chip green">posted date</span>}
                   {(source.supports_close_date || source.close_date_supported) && <span className="chip green">close date</span>}
                   {(source.supports_updated_date || source.updated_date_supported) && <span className="chip">updated date</span>}
                   {source.first_seen_only && <span className="chip">first seen only</span>}
+                  {source.max_jobs_per_source_per_refresh && <span className="chip">max {source.max_jobs_per_source_per_refresh}/refresh</span>}
+                  {source.min_score_by_source && <span className="chip">min score {source.min_score_by_source}</span>}
+                  {source.terms_notes && <span className="chip">terms noted</span>}
                 </div>
                 <ActivationChecklist source={source} />
               </p>

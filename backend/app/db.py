@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from .freshness import apply_freshness, freshness_rules, parse_date, today_utc
 from .paths import DB_PATH, database_type, postgres_connection_url
@@ -47,6 +49,10 @@ JOB_COLUMNS = [
     "source",
     "source_url",
     "apply_url",
+    "external_id",
+    "original_source",
+    "attribution_note",
+    "description_hash",
     "description",
     "requirements",
     "salary_min",
@@ -172,6 +178,10 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 source TEXT DEFAULT '',
                 source_url TEXT DEFAULT '',
                 apply_url TEXT DEFAULT '',
+                external_id TEXT DEFAULT '',
+                original_source TEXT DEFAULT '',
+                attribution_note TEXT DEFAULT '',
+                description_hash TEXT DEFAULT '',
                 description TEXT DEFAULT '',
                 requirements TEXT DEFAULT '',
                 salary_min REAL,
@@ -348,6 +358,10 @@ def ensure_job_columns(conn: Any) -> None:
         "application_confirmation_number": "TEXT DEFAULT ''",
         "application_submission_notes": "TEXT DEFAULT ''",
         "outcome_status": "TEXT NOT NULL DEFAULT 'not_started'",
+        "external_id": "TEXT DEFAULT ''",
+        "original_source": "TEXT DEFAULT ''",
+        "attribution_note": "TEXT DEFAULT ''",
+        "description_hash": "TEXT DEFAULT ''",
     }
     for column, ddl in additions.items():
         if column not in existing:
@@ -532,32 +546,53 @@ def latest_daily_report(path: Path | str = DB_PATH) -> dict[str, Any]:
     return {"exists": True, "date": item.get("report_date", ""), "text": item.get("report_markdown", ""), "summary": summary, "source": item.get("source", "")}
 
 
+def canonical_job_url(job: dict[str, Any]) -> str:
+    raw = str(job.get("source_url") or job.get("apply_url") or "").strip()
+    if not raw:
+        return ""
+    parts = urlsplit(raw)
+    if not parts.netloc:
+        return raw.lower()
+    netloc = parts.netloc.lower().removeprefix("www.")
+    path = parts.path.rstrip("/").lower()
+    return urlunsplit(((parts.scheme or "https").lower(), netloc, path, "", ""))
+
+
+def description_fingerprint(job: dict[str, Any]) -> str:
+    text = " ".join(str(job.get(field, "")) for field in ("description", "requirements")).strip().lower()
+    return hashlib.sha1(text.encode("utf-8")).hexdigest() if text else ""
+
+
 def duplicate_key(job: dict[str, Any]) -> tuple[str, str, str, str]:
-    key_url = (job.get("source_url") or job.get("apply_url") or "").strip().lower()
+    key_url = canonical_job_url(job)
+    fallback = key_url or str(job.get("external_id") or "").strip().lower() or str(job.get("description_hash") or "").strip().lower() or description_fingerprint(job)
     return (
         str(job.get("company", "")).strip().lower(),
         str(job.get("title", "")).strip().lower(),
         str(job.get("location", "")).strip().lower(),
-        key_url,
+        fallback,
     )
 
 
 def duplicate_row(conn: sqlite3.Connection, job: dict[str, Any]) -> sqlite3.Row | None:
-    return conn.execute(
+    company, title, location, _ = duplicate_key(job)
+    rows = conn.execute(
         """
         SELECT * FROM jobs
         WHERE lower(trim(company)) = ?
           AND lower(trim(title)) = ?
           AND lower(trim(location)) = ?
-          AND lower(trim(coalesce(nullif(source_url, ''), apply_url, ''))) = ?
         """,
-        duplicate_key(job),
-    ).fetchone()
+        (company, title, location),
+    ).fetchall()
+    wanted = duplicate_key(job)
+    return next((row for row in rows if duplicate_key(dict(row)) == wanted), None)
 
 
 def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | None, bool]:
     init_db(path)
     values = {column: job.get(column) for column in JOB_COLUMNS}
+    values["description_hash"] = values.get("description_hash") or description_fingerprint(values)
     values["date_found"] = values.get("date_found") or now_iso()
     values = {**values, **apply_freshness(values)}
     values["status"] = values.get("status") or "new"
@@ -755,6 +790,11 @@ def active_for_review(job: dict[str, Any], include_stale: bool = False) -> bool:
     return not job.get("is_closed_or_missing") and (include_stale or not job.get("is_stale"))
 
 
+def broad_api_job(job: dict[str, Any]) -> bool:
+    text = f"{job.get('source', '')} {job.get('attribution_note', '')}".lower()
+    return any(provider in text for provider in ("adzuna", "jsearch", "serpapi", "remotive", "rapidapi"))
+
+
 def unreviewed(job: dict[str, Any]) -> bool:
     return (job.get("review_status") or "unreviewed") == "unreviewed"
 
@@ -793,6 +833,7 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         and job.get("outcome_status") not in excluded_outcomes
         and not job.get("is_closed_or_missing")
         and (include_stale or not job.get("is_stale"))
+        and not (broad_api_job(job) and int(job.get("match_score") or 0) < 55)
     ]
 
     def rank(job: dict[str, Any]) -> tuple[Any, ...]:

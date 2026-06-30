@@ -24,7 +24,7 @@ from .profile import load_profile
 from .reports import latest_report as latest_daily_report
 from .reports import redact
 from .scoring import score_job
-from .source_validation import validate_sources
+from .source_validation import missing_required_credentials, validate_sources
 from .sources import load_sources, save_source
 
 app = FastAPI(title="GIS Apply Copilot")
@@ -398,9 +398,19 @@ def sources() -> list[dict[str, Any]]:
         saved = {source["name"]: source for source in db.list_sources()}
     except Exception:
         saved = {}
+    try:
+        live_jobs = db.list_jobs(include_sample=should_include_sample())
+    except Exception:
+        live_jobs = []
+    source_counts: dict[str, dict[str, int]] = {}
+    for item in live_jobs:
+        bucket = source_counts.setdefault(item.get("source", ""), {"jobs_total": 0, "strong_matches": 0})
+        bucket["jobs_total"] += 1
+        bucket["strong_matches"] += int(int(item.get("match_score") or 0) >= 70)
     rows = []
     for source in configured:
         row = {**source, **saved.get(source["name"], {})}
+        missing = missing_required_credentials(source)
         row.setdefault("supports_posted_date", bool(row.get("posted_date_supported", False)))
         row.setdefault("supports_updated_date", bool(row.get("updated_date_supported", False)))
         row.setdefault("supports_close_date", bool(row.get("close_date_supported", False)))
@@ -408,6 +418,9 @@ def sources() -> list[dict[str, Any]]:
         row.setdefault("last_checked_at", row.get("last_checked", ""))
         row.setdefault("last_error", row.get("errors_last_run", ""))
         row.setdefault("validation_status", "disabled" if not row.get("enabled") else row.get("status", "unknown"))
+        row["credentials_configured"] = not missing
+        row["credential_missing"] = bool(missing)
+        row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0}))
         rows.append(row)
     return rows
 

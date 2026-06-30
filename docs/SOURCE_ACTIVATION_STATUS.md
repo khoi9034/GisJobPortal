@@ -27,3 +27,25 @@ Generated: 2026-06-28T00:49:54.649520+00:00
 | Woolpert | greenhouse | active | https://woolpert.com/careers/ | First-seen only unless endpoint exposes dates | ok | Run validate_target_sources.py, then refresh. |
 | NV5 Geospatial | unsupported/login portal | unsupported | https://www.nv5.com/careers/ | First-seen only unless endpoint exposes dates | disabled | Manual browser review only. |
 | Michael Baker International | unsupported/login portal | unsupported | https://mbakerintl.com/careers/ | First-seen only unless endpoint exposes dates | disabled | Manual browser review only. |
+
+## Broad API Coverage Pack
+
+| Provider | Coverage tier | Credential status | Enabled | Expected coverage | Risk / terms notes | Next action |
+|---|---|---|---|---|---|---|
+| Adzuna | broad_api | needs local `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | false | Broad US GIS/planning/search API results | Use API terms only; do not scrape underlying boards | Add keys locally, validate, then enable if quality is acceptable |
+| JSearch / RapidAPI | broad_api | needs local `RAPIDAPI_KEY` | false | Broad aggregated jobs with publisher attribution | Use RapidAPI/JSearch terms; preserve publisher attribution | Add key locally, validate, then enable if quality is acceptable |
+| SerpApi Google Jobs | broad_api | needs local `SERPAPI_KEY` | false | Google Jobs API results through SerpApi | Use SerpApi API only; do not scrape Google or job boards | Add key locally, validate, then enable if quality is acceptable |
+| Remotive | broad_api | no key required | false | Remote GIS/data jobs, likely lower volume | Public API only; remote roles may be noisy | Enable only if remote coverage is useful |
+
+## Public ATS Placeholders
+
+| ATS | Status | Date support | Next action |
+|---|---|---|---|
+| Ashby | needs manual review | first-seen only until confirmed | Add company-specific source only after verifying public endpoint |
+| SmartRecruiters | needs manual review | first-seen only until confirmed | Add company-specific source only after verifying public endpoint |
+| Workable | needs manual review | first-seen only until confirmed | Add company-specific source only after verifying public endpoint |
+| GovernmentJobs / NeoGov | manual review | first-seen only unless official feed/API is confirmed | Do not scrape; use manual review or official API/feed only |
+
+## Unsupported / Manual Only
+
+LinkedIn, Indeed, Workday, iCIMS, Taleo, Oracle Cloud, and login-required portals are marked unsupported for automation. Open them manually if useful; do not scrape, log in, or auto-apply through the portal.

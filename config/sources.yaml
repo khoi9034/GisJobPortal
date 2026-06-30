@@ -3,6 +3,10 @@ sources:
     type: manual
     url: data/sample_jobs.json
     enabled: true
+    coverage_tier: manual_review
+    requires_api_key: false
+    dedupe_priority: 0
+    quality_score: 10
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -12,6 +16,10 @@ sources:
     type: api
     url: https://data.usajobs.gov/api/search
     enabled: true
+    coverage_tier: government_api
+    requires_api_key: true
+    dedupe_priority: 95
+    quality_score: 90
     default_date_posted_days: 30
     results_per_page: 10
     search_terms:
@@ -34,6 +42,184 @@ sources:
     updated_date_supported: false
     first_seen_only: false
     notes: Public federal jobs API; enable after setting USAJOBS_USER_AGENT and USAJOBS_API_KEY locally.
+  - name: Adzuna Jobs API
+    type: api
+    provider: adzuna
+    url: https://api.adzuna.com/v1/api/jobs/us/search/1
+    enabled: false
+    coverage_tier: broad_api
+    requires_api_key: true
+    required_env:
+      - ADZUNA_APP_ID
+      - ADZUNA_APP_KEY
+    search_terms:
+      - GIS Analyst
+      - GIS Technician
+      - Geospatial Analyst
+      - Spatial Analyst
+      - Urban Planning Analyst
+      - Planning Technician
+      - Transportation Planning Analyst
+    locations:
+      - North Carolina
+      - South Carolina
+      - Virginia
+      - Georgia
+      - Remote
+    title_keywords:
+      - GIS
+      - Geospatial
+      - Spatial
+      - Planning
+      - Planner
+      - Transportation
+      - Data Analyst
+    exclude_seniority_keywords:
+      - Senior
+      - Principal
+      - Manager
+      - Director
+    min_score_by_source: 40
+    max_jobs_per_source_per_refresh: 60
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: false
+    freshness_support: posted date when Adzuna returns created.
+    dedupe_priority: 50
+    quality_score: 60
+    terms_notes: Use Adzuna API terms; do not scrape underlying boards.
+    notes: Disabled broad API source; requires local ADZUNA_APP_ID and ADZUNA_APP_KEY.
+  - name: JSearch RapidAPI
+    type: api
+    provider: jsearch
+    url: https://jsearch.p.rapidapi.com/search
+    enabled: false
+    coverage_tier: broad_api
+    requires_api_key: true
+    required_env:
+      - RAPIDAPI_KEY
+    search_terms:
+      - GIS Analyst
+      - GIS Technician
+      - Geospatial Analyst
+      - Spatial Analyst
+      - Urban Planning Analyst
+      - Planning Technician
+      - Transportation Planning Analyst
+    locations:
+      - North Carolina
+      - South Carolina
+      - Virginia
+      - Georgia
+      - Remote
+    title_keywords:
+      - GIS
+      - Geospatial
+      - Spatial
+      - Planning
+      - Planner
+      - Transportation
+      - Data Analyst
+    exclude_seniority_keywords:
+      - Senior
+      - Principal
+      - Manager
+      - Director
+    min_score_by_source: 40
+    max_jobs_per_source_per_refresh: 60
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: false
+    freshness_support: posted date when JSearch returns job_posted_at_datetime_utc.
+    dedupe_priority: 45
+    quality_score: 55
+    terms_notes: Use RapidAPI/JSearch API terms; preserve publisher attribution.
+    notes: Disabled broad API source; requires local RAPIDAPI_KEY.
+  - name: SerpApi Google Jobs
+    type: api
+    provider: serpapi
+    url: https://serpapi.com/search.json
+    enabled: false
+    coverage_tier: broad_api
+    requires_api_key: true
+    required_env:
+      - SERPAPI_KEY
+    search_terms:
+      - GIS Analyst
+      - GIS Technician
+      - Geospatial Analyst
+      - Spatial Analyst
+      - Urban Planning Analyst
+      - Planning Technician
+      - Transportation Planning Analyst
+    locations:
+      - North Carolina
+      - South Carolina
+      - Virginia
+      - Georgia
+      - Remote
+    title_keywords:
+      - GIS
+      - Geospatial
+      - Spatial
+      - Planning
+      - Planner
+      - Transportation
+      - Data Analyst
+    exclude_seniority_keywords:
+      - Senior
+      - Principal
+      - Manager
+      - Director
+    min_score_by_source: 40
+    max_jobs_per_source_per_refresh: 60
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: true
+    freshness_support: Google Jobs dates are treated as first-seen unless a reliable source date appears.
+    dedupe_priority: 40
+    quality_score: 50
+    terms_notes: Use SerpApi Google Jobs API; do not scrape Google or job boards directly.
+    notes: Disabled broad API source; requires local SERPAPI_KEY.
+  - name: Remotive Remote Jobs
+    type: api
+    provider: remotive
+    url: https://remotive.com/api/remote-jobs
+    enabled: false
+    coverage_tier: broad_api
+    requires_api_key: false
+    search_terms:
+      - GIS
+      - Geospatial
+      - Spatial Analyst
+      - Data Analyst GIS
+    locations:
+      - Remote
+    title_keywords:
+      - GIS
+      - Geospatial
+      - Spatial
+      - Data Analyst
+    exclude_seniority_keywords:
+      - Senior
+      - Principal
+      - Manager
+      - Director
+    include_remote: true
+    min_score_by_source: 40
+    max_jobs_per_source_per_refresh: 40
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: false
+    freshness_support: Remotive publication_date is treated as posted date.
+    dedupe_priority: 35
+    quality_score: 45
+    terms_notes: Public Remotive API only; no scraping.
+    notes: Disabled public remote jobs API source; enable only if remote GIS/data roles are useful.
   - name: NC Government Jobs
     type: static_url
     url: https://www.governmentjobs.com/careers/northcarolina
@@ -166,6 +352,10 @@ sources:
     board_token: woolpert
     company: Woolpert
     enabled: true
+    coverage_tier: public_ats
+    requires_api_key: false
+    dedupe_priority: 90
+    quality_score: 85
     posted_date_supported: false
     close_date_supported: false
     updated_date_supported: true
@@ -206,6 +396,10 @@ sources:
     board_token: example_token
     company: Example Company
     enabled: false
+    coverage_tier: public_ats
+    requires_api_key: false
+    dedupe_priority: 70
+    quality_score: 65
     posted_date_supported: false
     close_date_supported: false
     updated_date_supported: true
@@ -217,14 +411,112 @@ sources:
     site: example
     company: Example Company
     enabled: false
+    coverage_tier: public_ats
+    requires_api_key: false
+    dedupe_priority: 70
+    quality_score: 65
     posted_date_supported: false
     close_date_supported: false
     updated_date_supported: false
     first_seen_only: true
     notes: Placeholder for companies with public Lever boards.
+  - name: Ashby Public ATS Placeholder
+    type: static_url
+    url: https://jobs.ashbyhq.com/example
+    enabled: false
+    coverage_tier: public_ats
+    requires_api_key: false
+    first_seen_only: true
+    freshness_support: First-seen only until a confirmed public Ashby endpoint is added.
+    dedupe_priority: 60
+    quality_score: 50
+    notes: Manual-review placeholder; enable only after confirming a public safe endpoint.
+  - name: SmartRecruiters Public ATS Placeholder
+    type: static_url
+    url: https://jobs.smartrecruiters.com/example
+    enabled: false
+    coverage_tier: public_ats
+    requires_api_key: false
+    first_seen_only: true
+    freshness_support: First-seen only until a confirmed public SmartRecruiters endpoint is added.
+    dedupe_priority: 60
+    quality_score: 50
+    notes: Manual-review placeholder; enable only after confirming a public safe endpoint.
+  - name: Workable Public ATS Placeholder
+    type: static_url
+    url: https://apply.workable.com/example
+    enabled: false
+    coverage_tier: public_ats
+    requires_api_key: false
+    first_seen_only: true
+    freshness_support: First-seen only until a confirmed public Workable endpoint is added.
+    dedupe_priority: 60
+    quality_score: 50
+    notes: Manual-review placeholder; enable only after confirming a public safe endpoint.
+  - name: GovernmentJobs NeoGov Placeholder
+    type: static_url
+    url: https://www.governmentjobs.com/careers/example
+    enabled: false
+    coverage_tier: manual_review
+    requires_api_key: false
+    first_seen_only: true
+    freshness_support: First-seen only unless a safe official feed/API is confirmed.
+    dedupe_priority: 65
+    quality_score: 55
+    notes: Manual-review placeholder for GovernmentJobs/NeoGov pages; do not scrape or automate applications.
   - name: Consulting Firm Manual Sources
     type: manual
     url: https://example.com/consulting-careers
     enabled: false
+    coverage_tier: manual_review
+    requires_api_key: false
     first_seen_only: true
     notes: Manual source bucket for GIS/planning/location-intelligence consulting firms.
+  - name: LinkedIn Manual Only
+    type: manual
+    url: https://www.linkedin.com/jobs/
+    enabled: false
+    coverage_tier: unsupported
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for automation; open manually only, no scraping, login automation, or auto-apply.
+  - name: Indeed Manual Only
+    type: manual
+    url: https://www.indeed.com/
+    enabled: false
+    coverage_tier: unsupported
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for automation; open manually only, no scraping, login automation, or auto-apply.
+  - name: Workday Manual Only
+    type: manual
+    url: https://www.myworkdayjobs.com/
+    enabled: false
+    coverage_tier: unsupported
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported/login portal; manual browser review only.
+  - name: iCIMS Manual Only
+    type: manual
+    url: https://www.icims.com/
+    enabled: false
+    coverage_tier: unsupported
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported/login portal; manual browser review only.
+  - name: Taleo Manual Only
+    type: manual
+    url: https://www.oracle.com/human-capital-management/taleo/
+    enabled: false
+    coverage_tier: unsupported
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported/login portal; manual browser review only.
+  - name: Oracle Cloud Manual Only
+    type: manual
+    url: https://www.oracle.com/human-capital-management/recruiting/
+    enabled: false
+    coverage_tier: unsupported
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported/login portal; manual browser review only.

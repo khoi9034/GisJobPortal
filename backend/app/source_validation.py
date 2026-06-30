@@ -7,10 +7,15 @@ from typing import Any
 
 from . import db
 from .collectors import collect_from_source
-from .paths import GENERATED_DIR, PRIVATE_DIR, ROOT
+from .paths import GENERATED_DIR, PRIVATE_DIR, ROOT, load_backend_env
 from .sources import load_sources
 
 SECRET_WORDS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION")
+PROVIDER_ENV = {
+    "adzuna": ("ADZUNA_APP_ID", "ADZUNA_APP_KEY"),
+    "jsearch": ("RAPIDAPI_KEY",),
+    "serpapi": ("SERPAPI_KEY",),
+}
 
 
 def redact(value: str) -> str:
@@ -46,6 +51,27 @@ def config_error(source: dict[str, Any]) -> str:
     return ""
 
 
+def missing_required_credentials(source: dict[str, Any]) -> list[str]:
+    provider = str(source.get("provider", "")).lower()
+    if source.get("name", "").lower().startswith("usajobs"):
+        required = ("USAJOBS_USER_AGENT", "USAJOBS_AUTHORIZATION_KEY")
+    else:
+        required = source.get("required_env") or PROVIDER_ENV.get(provider, ())
+    if not required:
+        return []
+    if not any(str(name) in os.environ for name in required):
+        load_backend_env()
+    missing = []
+    for name in required:
+        if name == "USAJOBS_AUTHORIZATION_KEY":
+            value = (os.getenv("USAJOBS_AUTHORIZATION_KEY") or os.getenv("USAJOBS_API_KEY") or "").strip()
+        else:
+            value = os.getenv(str(name), "").strip()
+        if not value or value.lower().startswith("replace_"):
+            missing.append(str(name))
+    return missing
+
+
 def validate_source(source: dict[str, Any], sample_size: int = 3) -> dict[str, Any]:
     now = datetime.now(UTC).isoformat()
     base = {
@@ -54,6 +80,12 @@ def validate_source(source: dict[str, Any], sample_size: int = 3) -> dict[str, A
         "url": source.get("url", ""),
         "enabled": bool(source.get("enabled", True)),
         "notes": source.get("notes", ""),
+        "coverage_tier": source.get("coverage_tier", ""),
+        "requires_api_key": bool(source.get("requires_api_key")),
+        "credentials_configured": not missing_required_credentials(source),
+        "terms_notes": source.get("terms_notes", ""),
+        "quality_score": source.get("quality_score"),
+        "dedupe_priority": source.get("dedupe_priority"),
         "valid_config": True,
         "reachable_endpoint": False,
         "jobs_returned": False,
@@ -68,6 +100,15 @@ def validate_source(source: dict[str, Any], sample_size: int = 3) -> dict[str, A
         return {**base, "valid_config": False, "status": "error", "validation_status": "error", "last_error": error}
     if not source.get("enabled", True):
         return {**base, "status": "disabled", "validation_status": "disabled"}
+    missing = missing_required_credentials(source)
+    if missing:
+        return {
+            **base,
+            "credentials_configured": False,
+            "status": "warning",
+            "validation_status": "warning",
+            "last_error": f"Credentials missing: {', '.join(missing)}",
+        }
     try:
         jobs = collect_from_source(source)
         sample = jobs[:sample_size]

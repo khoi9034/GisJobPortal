@@ -123,6 +123,18 @@ export type Source = {
   supports_close_date?: boolean;
   supports_updated_date?: boolean;
   freshness_confidence_default?: string;
+  coverage_tier?: string;
+  requires_api_key?: boolean;
+  credentials_configured?: boolean;
+  credential_missing?: boolean;
+  terms_notes?: string;
+  freshness_support?: string;
+  dedupe_priority?: number;
+  quality_score?: number;
+  min_score_by_source?: number;
+  max_jobs_per_source_per_refresh?: number;
+  jobs_total?: number;
+  strong_matches?: number;
 };
 
 export type Stats = {

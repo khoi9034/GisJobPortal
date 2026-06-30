@@ -350,6 +350,34 @@ Greenhouse and Lever sources are company-specific; only add a `board_token` or `
 
 Discovery writes `docs/SOURCE_DISCOVERY_REPORT.md` and `docs/SOURCE_ACTIVATION_STATUS.md`.
 
+## Expanding Toward Internet-Scale Coverage
+
+The portal does not safely cover the whole internet by scraping every job board. It expands coverage through source layers:
+
+- broad APIs: Adzuna, JSearch/RapidAPI, SerpApi Google Jobs, and Remotive are configured disabled by default.
+- public ATS feeds: Greenhouse and Lever are supported; Ashby, SmartRecruiters, Workable, and GovernmentJobs/NeoGov are manual-review placeholders until a safe public endpoint is confirmed.
+- targeted manual sources: NC counties, NC cities, Charlotte metro employers, transportation/public works teams, GIS companies, utilities, and consulting firms stay tracked without automation until verified.
+- unsupported/manual-only sources: LinkedIn, Indeed, Workday, iCIMS, Taleo, Oracle Cloud, and login-required portals are not scraped or automated.
+
+Broad APIs require local-only credentials in `backend/.env`:
+
+```text
+ADZUNA_APP_ID=replace_local_secret_only
+ADZUNA_APP_KEY=replace_local_secret_only
+RAPIDAPI_KEY=replace_local_secret_only
+SERPAPI_KEY=replace_local_secret_only
+```
+
+Use the helper if you want to add keys locally:
+
+```powershell
+.\scripts\setup_job_api_keys.ps1
+python scripts\validate_sources.py
+python scripts\refresh_jobs.py
+```
+
+The app preserves API attribution with `source`, `original_source`, and `attribution_note`, then deduplicates by normalized company/title/location and canonical apply URL. Broad API sources also support per-source quality controls like `min_score_by_source`, `max_jobs_per_source_per_refresh`, title keywords, seniority exclusions, and remote inclusion. Apply Today filters low-score broad API noise so high-value real postings stay first.
+
 ## Private Documents
 
 Put your resume PDF in `private/resume/`, then run:

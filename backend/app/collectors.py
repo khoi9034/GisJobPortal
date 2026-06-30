@@ -26,6 +26,9 @@ USAJOBS_SEARCH_TERMS = [
     "Transportation Planning Analyst",
 ]
 
+BROAD_API_PROVIDERS = {"adzuna", "jsearch", "serpapi", "remotive"}
+DEFAULT_BROAD_TERMS = USAJOBS_SEARCH_TERMS
+
 
 def plain_text(value: Any) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", unescape(str(value or "")))).strip()
@@ -46,6 +49,9 @@ def normalize_job(raw: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]
         "source": raw.get("source") or source["name"],
         "source_url": raw.get("source_url") or raw.get("apply_url") or source.get("url", ""),
         "apply_url": raw.get("apply_url") or raw.get("source_url") or source.get("url", ""),
+        "external_id": raw.get("external_id", ""),
+        "original_source": raw.get("original_source", ""),
+        "attribution_note": raw.get("attribution_note", ""),
         "description": raw.get("description", ""),
         "requirements": raw.get("requirements", ""),
         "salary_min": raw.get("salary_min"),
@@ -141,6 +147,15 @@ def fetch_json(url: str) -> Any:
         raise RuntimeError(f"request failed: {getattr(exc, 'reason', exc)}") from exc
 
 
+def fetch_json_request(url: str, headers: dict[str, str] | None = None) -> Any:
+    try:
+        req = request.Request(url, headers=headers or {})
+        with request.urlopen(req, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.URLError as exc:
+        raise RuntimeError(f"request failed: {getattr(exc, 'reason', exc)}") from exc
+
+
 def collect_usajobs(source: dict[str, Any]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     locations = [""] + [str(location) for location in source.get("locations", []) if str(location).strip()]
@@ -149,6 +164,164 @@ def collect_usajobs(source: dict[str, Any]) -> list[dict[str, Any]]:
             data = fetch_usajobs(term, source, location)
             items = data.get("SearchResult", {}).get("SearchResultItems", [])
             jobs.extend(normalize_usajobs_item(item, source) for item in items)
+    return jobs
+
+
+def provider_name(source: dict[str, Any]) -> str:
+    explicit = str(source.get("provider", "")).strip().lower()
+    if explicit:
+        return explicit
+    name = str(source.get("name", "")).lower()
+    return next((provider for provider in BROAD_API_PROVIDERS if provider in name), "")
+
+
+def env_secret(name: str) -> str:
+    load_backend_env()
+    value = os.getenv(name, "").strip()
+    return "" if not value or value.lower().startswith("replace_") else value
+
+
+def search_terms(source: dict[str, Any]) -> list[str]:
+    return [str(term) for term in source.get("search_terms", []) if str(term).strip()] or DEFAULT_BROAD_TERMS
+
+
+def source_locations(source: dict[str, Any]) -> list[str]:
+    return [str(item) for item in source.get("locations", []) if str(item).strip()] or [""]
+
+
+def collect_adzuna(source: dict[str, Any]) -> list[dict[str, Any]]:
+    app_id = env_secret("ADZUNA_APP_ID")
+    app_key = env_secret("ADZUNA_APP_KEY")
+    if not app_id or not app_key:
+        raise RuntimeError("Adzuna credentials missing; set ADZUNA_APP_ID and ADZUNA_APP_KEY in backend/.env")
+    jobs: list[dict[str, Any]] = []
+    for term in search_terms(source):
+        for location in source_locations(source):
+            params = {"app_id": app_id, "app_key": app_key, "what": term, "content-type": "application/json"}
+            if location:
+                params["where"] = location
+            data = fetch_json(f"{source['url']}?{parse.urlencode(params)}")
+            for item in data.get("results", []):
+                company = item.get("company") or {}
+                location_obj = item.get("location") or {}
+                jobs.append(
+                    normalize_job(
+                        {
+                            "title": item.get("title", ""),
+                            "company": company.get("display_name", "") if isinstance(company, dict) else str(company or ""),
+                            "location": location_obj.get("display_name", "") if isinstance(location_obj, dict) else str(location_obj or ""),
+                            "source_url": item.get("redirect_url", ""),
+                            "apply_url": item.get("redirect_url", ""),
+                            "description": plain_text(item.get("description", "")),
+                            "salary_min": _as_float(item.get("salary_min")),
+                            "salary_max": _as_float(item.get("salary_max")),
+                            "source_posted_at": item.get("created", ""),
+                            "external_id": item.get("id", ""),
+                            "original_source": item.get("contract_type", ""),
+                            "attribution_note": "Collected through Adzuna broad jobs API.",
+                        },
+                        source,
+                    )
+                )
+    return jobs
+
+
+def collect_jsearch(source: dict[str, Any]) -> list[dict[str, Any]]:
+    api_key = env_secret("RAPIDAPI_KEY")
+    if not api_key:
+        raise RuntimeError("JSearch credentials missing; set RAPIDAPI_KEY in backend/.env")
+    jobs: list[dict[str, Any]] = []
+    host = "jsearch.p.rapidapi.com"
+    for term in search_terms(source):
+        query = term
+        locations = source_locations(source)
+        for location in locations:
+            params = {"query": f"{query} {location}".strip(), "page": "1", "num_pages": "1", "date_posted": "month"}
+            data = fetch_json_request(
+                f"{source['url']}?{parse.urlencode(params)}",
+                {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": host},
+            )
+            for item in data.get("data", []):
+                place = ", ".join(filter(None, [item.get("job_city"), item.get("job_state"), item.get("job_country")]))
+                jobs.append(
+                    normalize_job(
+                        {
+                            "title": item.get("job_title", ""),
+                            "company": item.get("employer_name", ""),
+                            "location": place or item.get("job_location", ""),
+                            "remote_status": "remote" if item.get("job_is_remote") else "",
+                            "source_url": item.get("job_google_link", "") or item.get("job_apply_link", ""),
+                            "apply_url": item.get("job_apply_link", "") or item.get("job_google_link", ""),
+                            "description": plain_text(item.get("job_description", "")),
+                            "salary_min": _as_float(item.get("job_min_salary")),
+                            "salary_max": _as_float(item.get("job_max_salary")),
+                            "source_posted_at": item.get("job_posted_at_datetime_utc", ""),
+                            "external_id": item.get("job_id", ""),
+                            "original_source": item.get("job_publisher", ""),
+                            "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.",
+                        },
+                        source,
+                    )
+                )
+    return jobs
+
+
+def collect_serpapi(source: dict[str, Any]) -> list[dict[str, Any]]:
+    api_key = env_secret("SERPAPI_KEY")
+    if not api_key:
+        raise RuntimeError("SerpApi credentials missing; set SERPAPI_KEY in backend/.env")
+    jobs: list[dict[str, Any]] = []
+    for term in search_terms(source):
+        for location in source_locations(source):
+            query = f"{term} {location}".strip()
+            params = {"engine": "google_jobs", "q": query, "api_key": api_key, "hl": "en"}
+            data = fetch_json(f"{source['url']}?{parse.urlencode(params)}")
+            for item in data.get("jobs_results", []):
+                apply_options = item.get("apply_options") or []
+                apply_url = apply_options[0].get("link", "") if apply_options and isinstance(apply_options[0], dict) else item.get("share_link", "")
+                jobs.append(
+                    normalize_job(
+                        {
+                            "title": item.get("title", ""),
+                            "company": item.get("company_name", ""),
+                            "location": item.get("location", ""),
+                            "source_url": item.get("share_link", "") or apply_url,
+                            "apply_url": apply_url,
+                            "description": plain_text(item.get("description", "")),
+                            "freshness_confidence": "first_seen_only",
+                            "external_id": item.get("job_id", ""),
+                            "original_source": item.get("via", ""),
+                            "attribution_note": "Collected through SerpApi Google Jobs; posted date is first-seen only unless source exposes one.",
+                        },
+                        source,
+                    )
+                )
+    return jobs
+
+
+def collect_remotive(source: dict[str, Any]) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+    for term in search_terms(source):
+        data = fetch_json(f"{source['url']}?{parse.urlencode({'search': term})}")
+        for item in data.get("jobs", []):
+            jobs.append(
+                normalize_job(
+                    {
+                        "title": item.get("title", ""),
+                        "company": item.get("company_name", ""),
+                        "location": item.get("candidate_required_location") or "Remote",
+                        "remote_status": "remote",
+                        "source_url": item.get("url", ""),
+                        "apply_url": item.get("url", ""),
+                        "description": plain_text(item.get("description", "")),
+                        "source_posted_at": item.get("publication_date", ""),
+                        "external_id": item.get("id", ""),
+                        "original_source": "Remotive",
+                        "attribution_note": "Collected through Remotive public remote jobs API.",
+                    },
+                    source,
+                )
+            )
     return jobs
 
 
@@ -230,21 +403,58 @@ def filter_by_source_keywords(jobs: list[dict[str, Any]], source: dict[str, Any]
     ]
 
 
+def apply_source_quality_controls(jobs: list[dict[str, Any]], source: dict[str, Any]) -> list[dict[str, Any]]:
+    title_keywords = [str(item).lower() for item in source.get("title_keywords", []) if str(item).strip()]
+    exclude_keywords = [
+        str(item).lower()
+        for item in [*(source.get("exclude_title_keywords") or []), *(source.get("exclude_seniority_keywords") or [])]
+        if str(item).strip()
+    ]
+
+    def keep(job: dict[str, Any]) -> bool:
+        title = str(job.get("title", "")).lower()
+        if title_keywords and not any(keyword in title for keyword in title_keywords):
+            return False
+        if exclude_keywords and any(keyword in title for keyword in exclude_keywords):
+            return False
+        if source.get("include_remote") is False and "remote" in str(job.get("remote_status", "")).lower():
+            return False
+        return True
+
+    filtered = [job for job in jobs if keep(job)]
+    limit = int(source.get("max_jobs_per_source_per_refresh") or 0)
+    return filtered[:limit] if limit > 0 else filtered
+
+
+def finish_source_jobs(jobs: list[dict[str, Any]], source: dict[str, Any]) -> list[dict[str, Any]]:
+    return apply_source_quality_controls(filter_by_source_keywords(jobs, source), source)
+
+
 def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
     if not source.get("enabled", True):
+        return []
+    if source.get("coverage_tier") == "unsupported":
         return []
     if source["type"] == "manual":
         path = Path(source["url"])
         if not path.is_absolute():
             path = ROOT / path
         with open(path if path.exists() else SAMPLE_JOBS_PATH, "r", encoding="utf-8") as handle:
-            return filter_by_source_keywords([normalize_job(item, source) for item in json.load(handle)], source)
+            return finish_source_jobs([normalize_job(item, source) for item in json.load(handle)], source)
     if source["type"] == "api" and source["name"].lower().startswith("usajobs"):
-        return filter_by_source_keywords(collect_usajobs(source), source)
+        return finish_source_jobs(collect_usajobs(source), source)
+    if source["type"] == "api" and provider_name(source) == "adzuna":
+        return finish_source_jobs(collect_adzuna(source), source)
+    if source["type"] == "api" and provider_name(source) == "jsearch":
+        return finish_source_jobs(collect_jsearch(source), source)
+    if source["type"] == "api" and provider_name(source) == "serpapi":
+        return finish_source_jobs(collect_serpapi(source), source)
+    if source["type"] == "api" and provider_name(source) == "remotive":
+        return finish_source_jobs(collect_remotive(source), source)
     if source["type"] == "greenhouse":
-        return filter_by_source_keywords(collect_greenhouse(source), source)
+        return finish_source_jobs(collect_greenhouse(source), source)
     if source["type"] == "lever":
-        return filter_by_source_keywords(collect_lever(source), source)
+        return finish_source_jobs(collect_lever(source), source)
     return []
 
 
@@ -283,6 +493,9 @@ def refresh_jobs(
             freshened = apply_freshness(job, checked_at=checked_at)
             scored = {**freshened, **score_job(freshened, profile)}
             jobs_scored += 1
+            min_score = int(source.get("min_score_by_source") or 0)
+            if min_score and int(scored.get("match_score") or 0) < min_score:
+                continue
             if scored.get("is_closed_or_missing"):
                 source_closed += 1
             job_id, duplicate = db.insert_job(scored, db_path)

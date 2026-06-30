@@ -182,6 +182,71 @@ class MvpTests(unittest.TestCase):
         sources = load_sources()
         self.assertTrue(any(source["type"] == "manual" and source["enabled"] for source in sources))
         self.assertTrue(all(source["type"] in {"api", "rss", "greenhouse", "lever", "static_url", "manual"} for source in sources))
+        broad = [source for source in sources if source.get("coverage_tier") == "broad_api"]
+        self.assertGreaterEqual(len(broad), 4)
+        self.assertTrue(all(not source.get("enabled") for source in broad))
+        self.assertTrue(any(source.get("requires_api_key") for source in broad))
+
+    def test_enabled_broad_api_missing_keys_does_not_break_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            source = {"name": "Adzuna Jobs API", "type": "api", "provider": "adzuna", "url": "https://api.adzuna.com/v1/api/jobs/us/search/1", "enabled": True}
+            with patch.dict(os.environ, {"ADZUNA_APP_ID": "", "ADZUNA_APP_KEY": ""}, clear=False), patch("backend.app.collectors.load_backend_env"):
+                result = collectors.refresh_jobs(path, sources_override=[source])
+        self.assertEqual(result["sources_checked"], 1)
+        self.assertIn("Adzuna Jobs API", result["errors"])
+
+    def test_adzuna_collector_normalizes_mock_response(self):
+        source = {"name": "Adzuna Jobs API", "type": "api", "provider": "adzuna", "url": "https://api.adzuna.com/v1/api/jobs/us/search/1", "enabled": True, "search_terms": ["GIS Analyst"], "locations": ["North Carolina"]}
+        data = {"results": [{"id": "adz-1", "title": "GIS Analyst", "company": {"display_name": "Example County"}, "location": {"display_name": "Charlotte, NC"}, "redirect_url": "https://jobs.example.com/apply?id=1", "description": "<p>ArcGIS parcels zoning</p>", "created": "2026-06-01T00:00:00Z"}]}
+        with patch.dict(os.environ, {"ADZUNA_APP_ID": "id", "ADZUNA_APP_KEY": "key"}, clear=False), patch("backend.app.collectors.load_backend_env"), patch("backend.app.collectors.fetch_json", return_value=data):
+            jobs = collectors.collect_adzuna(source)
+        self.assertEqual(jobs[0]["title"], "GIS Analyst")
+        self.assertEqual(jobs[0]["source_posted_at"], "2026-06-01T00:00:00Z")
+        self.assertEqual(jobs[0]["original_source"], "")
+        self.assertIn("Adzuna", jobs[0]["attribution_note"])
+
+    def test_remotive_collector_normalizes_mock_response(self):
+        source = {"name": "Remotive Remote Jobs", "type": "api", "provider": "remotive", "url": "https://remotive.com/api/remote-jobs", "enabled": True, "search_terms": ["GIS"]}
+        data = {"jobs": [{"id": 7, "title": "Remote GIS Analyst", "company_name": "Remote Co", "candidate_required_location": "USA", "url": "https://remote.example.com/gis", "description": "ArcGIS and Python", "publication_date": "2026-06-02T00:00:00"}]}
+        with patch("backend.app.collectors.fetch_json", return_value=data):
+            jobs = collectors.collect_remotive(source)
+        self.assertEqual(jobs[0]["remote_status"], "remote")
+        self.assertEqual(jobs[0]["original_source"], "Remotive")
+        self.assertEqual(jobs[0]["source_posted_at"], "2026-06-02T00:00:00")
+
+    def test_canonical_duplicate_detection_merges_api_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            first = {**self.job, "source": "Adzuna Jobs API", "source_url": "https://www.example.com/jobs/123?utm_source=adzuna", "apply_url": "https://www.example.com/jobs/123?utm_source=adzuna"}
+            second = {**self.job, "source": "JSearch RapidAPI", "source_url": "https://example.com/jobs/123?ref=jsearch", "apply_url": "https://example.com/jobs/123?ref=jsearch"}
+            first_id, first_duplicate = db.insert_job(first, path)
+            second_id, second_duplicate = db.insert_job(second, path)
+        self.assertFalse(first_duplicate)
+        self.assertEqual(first_id, second_id)
+        self.assertTrue(second_duplicate)
+
+    def test_source_attribution_is_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({**self.job, "source": "JSearch RapidAPI", "original_source": "County Careers", "attribution_note": "Collected through JSearch/RapidAPI broad jobs API."}, path)
+            job = db.get_job(job_id, path)
+        self.assertEqual(job["source"], "JSearch RapidAPI")
+        self.assertEqual(job["original_source"], "County Careers")
+        self.assertIn("JSearch", job["attribution_note"])
+
+    def test_unsupported_sources_are_not_called(self):
+        source = {"name": "LinkedIn Manual Only", "type": "manual", "url": "https://www.linkedin.com/jobs/", "enabled": True, "coverage_tier": "unsupported"}
+        with patch("builtins.open") as mocked_open:
+            jobs = collectors.collect_from_source(source)
+        self.assertEqual(jobs, [])
+        mocked_open.assert_not_called()
+
+    def test_setup_job_api_keys_script_is_secret_safe(self):
+        text = Path("scripts/setup_job_api_keys.ps1").read_text(encoding="utf-8")
+        self.assertIn("Read-Host", text)
+        self.assertIn("backend\\.env", text)
+        self.assertNotRegex(text, r"(ADZUNA_APP_KEY|RAPIDAPI_KEY|SERPAPI_KEY)=['\"][A-Za-z0-9_-]{12,}")
 
     def test_search_profile_loading(self):
         profiles = load_search_profiles()
@@ -815,6 +880,15 @@ class MvpTests(unittest.TestCase):
             ordered = [job["id"] for job in db.apply_today(path=path)]
 
         self.assertLess(ordered.index(strong_id), ordered.index(weak_id))
+
+    def test_apply_today_excludes_low_fit_broad_api_noise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "title": "Good Real Job", "source": "USAJobs API", "source_url": "https://example.com/good-real", "match_score": 72, "date_posted": db.now_iso()}, path)
+            db.insert_job({**self.job, "title": "Broad Noise", "source": "Adzuna Jobs API", "source_url": "https://example.com/broad-noise", "match_score": 25, "date_posted": db.now_iso(), "attribution_note": "Collected through Adzuna broad jobs API."}, path)
+            rows = db.apply_today(path=path)
+
+        self.assertEqual([job["title"] for job in rows], ["Good Real Job"])
 
     def test_apply_today_closing_soon_breaks_similar_score_tie(self):
         with tempfile.TemporaryDirectory() as tmp:
