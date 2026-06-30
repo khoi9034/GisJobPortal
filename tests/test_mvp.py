@@ -228,7 +228,8 @@ class MvpTests(unittest.TestCase):
             self.assertTrue(names[name]["requires_api_key"])
             self.assertEqual(names[name]["env_key"], "RAPIDAPI_KEY")
             self.assertLessEqual(names[name]["max_jobs_per_source_per_refresh"], 15)
-            self.assertLessEqual(names[name]["max_api_requests_per_refresh"], 2)
+            self.assertLessEqual(names[name]["max_api_requests_per_refresh"], 1)
+            self.assertLessEqual(names[name]["request_timeout_seconds"], 2)
 
     def test_enabled_sea_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -261,7 +262,7 @@ class MvpTests(unittest.TestCase):
     def test_jsearch_collector_normalizes_links_and_metadata(self):
         source = {"name": "JSearch GIS US", "type": "jsearch", "url": "https://jsearch.p.rapidapi.com/search", "enabled": True, "search_terms": ["GIS Analyst"], "locations": ["North Carolina"]}
         data = {
-            "data": [{
+            "data": {"jobs": [{
                 "job_id": "js-1",
                 "job_title": "GIS Analyst",
                 "employer_name": "Example County",
@@ -282,7 +283,7 @@ class MvpTests(unittest.TestCase):
                 "job_min_salary": 50000,
                 "job_max_salary": 70000,
                 "required_technologies": ["ArcGIS", "Python"],
-            }]
+            }]}
         }
         with patch.dict(os.environ, {"RAPIDAPI_KEY": "new-rotated-key"}, clear=False), patch("backend.app.collectors.load_backend_env"), patch("backend.app.collectors.fetch_json_request", return_value=data):
             jobs = collectors.collect_jsearch(source)

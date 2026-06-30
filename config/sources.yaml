@@ -92,7 +92,7 @@ sources:
     notes: Disabled broad API source; requires local ADZUNA_APP_ID and ADZUNA_APP_KEY.
   - name: JSearch GIS US
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     requires_api_key: true
@@ -125,7 +125,8 @@ sources:
       - Director
     min_score_by_source: 40
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -137,7 +138,7 @@ sources:
     notes: Disabled JSearch/RapidAPI Google Jobs-style GIS source; rotate any pasted RapidAPI key before enabling.
   - name: JSearch Planning US
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     requires_api_key: true
@@ -154,7 +155,8 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     min_score_by_source: 45
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -166,7 +168,7 @@ sources:
     notes: Disabled planning-focused JSearch source; enable after key rotation and validation.
   - name: JSearch Remote GIS
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     requires_api_key: true
@@ -184,7 +186,8 @@ sources:
     include_remote: true
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -279,7 +282,7 @@ sources:
     notes: Disabled public remote jobs API source; enable only if remote GIS/data roles are useful.
   - name: JSearch Southeast Asia GIS
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     env_key: RAPIDAPI_KEY
@@ -313,7 +316,8 @@ sources:
     include_remote: true
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -325,7 +329,7 @@ sources:
     notes: Disabled SEA broad API source; requires RAPIDAPI_KEY and quality review before enabling.
   - name: JSearch Vietnam GIS
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     region_scope: southeast_asia
@@ -346,7 +350,8 @@ sources:
     include_remote: true
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -358,7 +363,7 @@ sources:
     notes: Disabled Vietnam JSearch source; activate after RapidAPI key rotation and validation.
   - name: JSearch Singapore GIS
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     region_scope: southeast_asia
@@ -379,7 +384,8 @@ sources:
     include_remote: true
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -391,7 +397,7 @@ sources:
     notes: Disabled Singapore JSearch source; activate after RapidAPI key rotation and validation.
   - name: JSearch APAC Remote Sensing
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     region_scope: apac
@@ -412,7 +418,8 @@ sources:
     include_remote: true
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -424,7 +431,7 @@ sources:
     notes: Disabled APAC remote sensing JSearch source; enable only after checking noise.
   - name: JSearch Location Intelligence
     type: jsearch
-    url: https://jsearch.p.rapidapi.com/search
+    url: https://jsearch.p.rapidapi.com/search-v2
     enabled: true
     coverage_tier: broad_api
     requires_api_key: true
@@ -442,7 +449,8 @@ sources:
     include_remote: true
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
-    max_api_requests_per_refresh: 2
+    max_api_requests_per_refresh: 1
+    request_timeout_seconds: 2
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false

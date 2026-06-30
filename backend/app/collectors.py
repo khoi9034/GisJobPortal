@@ -175,10 +175,10 @@ def fetch_json(url: str) -> Any:
         raise RuntimeError(f"request failed: {getattr(exc, 'reason', exc)}") from exc
 
 
-def fetch_json_request(url: str, headers: dict[str, str] | None = None) -> Any:
+def fetch_json_request(url: str, headers: dict[str, str] | None = None, timeout: int = 20) -> Any:
     try:
         req = request.Request(url, headers={"User-Agent": "GisJobPortal/1.0 (+https://gis-job-portal.vercel.app)", "Accept": "application/json", **(headers or {})})
-        with request.urlopen(req, timeout=20) as response:
+        with request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except error.URLError as exc:
         raise RuntimeError(f"request failed: {getattr(exc, 'reason', exc)}") from exc
@@ -273,9 +273,12 @@ def collect_jsearch(source: dict[str, Any]) -> list[dict[str, Any]]:
             data = fetch_json_request(
                 f"{source['url']}?{parse.urlencode(params)}",
                 {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": host},
+                int(source.get("request_timeout_seconds") or 8),
             )
             requests_made += 1
-            for item in data.get("data", []):
+            payload = data.get("data", [])
+            items = payload.get("jobs", []) if isinstance(payload, dict) else payload
+            for item in items:
                 place = ", ".join(filter(None, [item.get("job_city"), item.get("job_state"), item.get("job_country")]))
                 apply_options = item.get("apply_options") if isinstance(item.get("apply_options"), list) else []
                 option_link = next(

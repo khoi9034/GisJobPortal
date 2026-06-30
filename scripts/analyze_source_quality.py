@@ -11,6 +11,10 @@ sys.path.insert(0, str(ROOT))
 from backend.app import db  # noqa: E402
 
 
+def safe_print(text: str = "") -> None:
+    print(str(text).encode("ascii", errors="replace").decode("ascii"))
+
+
 def duplicate_rate(source: dict, total: int) -> float:
     text = f"{source.get('last_status', '')} {source.get('errors_last_run', '')}"
     match = re.search(r"(\d+)\s+duplicates", text)
@@ -66,9 +70,9 @@ def rows() -> list[dict]:
 
 
 def main() -> int:
-    print("source quality")
+    safe_print("source quality")
     for row in rows():
-        print(
+        safe_print(
             f"- {row['source']}: total={row['total']} strong={row['strong_excellent']} "
             f"possible={row['possible']} low={row['low_fit']} avg={row['average_score']} "
             f"duplicate_rate={row['duplicate_rate']}% missing_links={row['missing_links']} recommendation={row['recommendation']}"
@@ -76,15 +80,15 @@ def main() -> int:
         )
     jsearch_jobs = [job for job in db.list_jobs(include_sample=False) if "jsearch" in f"{job.get('source', '')} {job.get('attribution_note', '')}".lower()]
     if jsearch_jobs:
-        print("\njsearch details")
-        print(f"- total={len(jsearch_jobs)} missing_links={sum(1 for job in jsearch_jobs if not (job.get('apply_url') or job.get('source_url')))}")
+        safe_print("\njsearch details")
+        safe_print(f"- total={len(jsearch_jobs)} missing_links={sum(1 for job in jsearch_jobs if not (job.get('apply_url') or job.get('source_url')))}")
         regions: dict[str, int] = {}
         for job in jsearch_jobs:
             key = job.get("country") or job.get("region") or "unknown"
             regions[key] = regions.get(key, 0) + 1
-        print("- top regions: " + ", ".join(f"{name}={count}" for name, count in sorted(regions.items(), key=lambda item: item[1], reverse=True)[:10]))
+        safe_print("- top regions: " + ", ".join(f"{name}={count}" for name, count in sorted(regions.items(), key=lambda item: item[1], reverse=True)[:10]))
         for job in sorted(jsearch_jobs, key=lambda item: int(item.get("match_score") or 0), reverse=True)[:10]:
-            print(f"  - {job.get('match_score')} {job.get('title')} at {job.get('company')} ({job.get('location')})")
+            safe_print(f"  - {job.get('match_score')} {job.get('title')} at {job.get('company')} ({job.get('location')})")
     return 0
 
 
