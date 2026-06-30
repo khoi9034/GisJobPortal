@@ -93,7 +93,7 @@ sources:
   - name: JSearch GIS US
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     requires_api_key: true
     env_key: RAPIDAPI_KEY
@@ -137,7 +137,7 @@ sources:
   - name: JSearch Planning US
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     requires_api_key: true
     env_key: RAPIDAPI_KEY
@@ -165,7 +165,7 @@ sources:
   - name: JSearch Remote GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     requires_api_key: true
     env_key: RAPIDAPI_KEY
@@ -277,7 +277,7 @@ sources:
   - name: JSearch Southeast Asia GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     env_key: RAPIDAPI_KEY
     region_scope: southeast_asia
@@ -322,7 +322,7 @@ sources:
   - name: JSearch Vietnam GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     region_scope: southeast_asia
     international_region: Southeast Asia
@@ -354,7 +354,7 @@ sources:
   - name: JSearch Singapore GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     region_scope: southeast_asia
     international_region: Southeast Asia
@@ -386,7 +386,7 @@ sources:
   - name: JSearch APAC Remote Sensing
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     region_scope: apac
     international_region: Southeast Asia
@@ -418,7 +418,7 @@ sources:
   - name: JSearch Location Intelligence
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     requires_api_key: true
     env_key: RAPIDAPI_KEY
