@@ -33,7 +33,7 @@ Generated: 2026-06-28T00:49:54.649520+00:00
 | Provider | Coverage tier | Credential status | Enabled | Expected coverage | Risk / terms notes | Next action |
 |---|---|---|---|---|---|---|
 | Adzuna | broad_api | needs local `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | false | Broad US GIS/planning/search API results | Use API terms only; do not scrape underlying boards | Add keys locally, validate, then enable if quality is acceptable |
-| JSearch / RapidAPI | broad_api | needs local `RAPIDAPI_KEY` | false | Broad aggregated jobs with publisher attribution | Use RapidAPI/JSearch terms; preserve publisher attribution | Add key locally, validate, then enable if quality is acceptable |
+| JSearch / RapidAPI | broad_api | needs rotated local `RAPIDAPI_KEY` | false | Broad aggregated jobs with publisher attribution and apply/source links | Use RapidAPI/JSearch terms; preserve publisher attribution and do not scrape boards | Rotate any pasted key, run `setup_job_api_keys.ps1`, enable one JSearch source, validate, then review source quality |
 | SerpApi Google Jobs | broad_api | needs local `SERPAPI_KEY` | false | Google Jobs API results through SerpApi | Use SerpApi API only; do not scrape Google or job boards | Add key locally, validate, then enable if quality is acceptable |
 | Remotive | broad_api | no key required | false | Remote GIS/data jobs, likely lower volume | Public API only; remote roles may be noisy | Enable only if remote coverage is useful |
 

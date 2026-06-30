@@ -376,6 +376,26 @@ python scripts\validate_sources.py
 python scripts\refresh_jobs.py
 ```
 
+### Activating JSearch / RapidAPI
+
+If a RapidAPI key was ever pasted into chat, rotate it before using JSearch. Then:
+
+```powershell
+.\scripts\setup_job_api_keys.ps1
+python scripts\source_toggle.py enable "JSearch GIS US"
+python scripts\validate_sources.py
+python scripts\refresh_jobs.py
+python scripts\analyze_source_quality.py
+```
+
+To sync the rotated key to Render without printing or committing it:
+
+```powershell
+.\scripts\sync_job_api_keys_to_render.ps1
+```
+
+Start with one JSearch source, check missing-link counts and score quality, then enable more profiles only if noise stays low. JSearch jobs preserve `apply_url`, `source_url`, `original_source`, apply options, and a visible link status. If no link is returned, the UI says `No apply link available from source.`
+
 The app preserves API attribution with `source`, `original_source`, and `attribution_note`, then deduplicates by normalized company/title/location and canonical apply URL. Broad API sources also support per-source quality controls like `min_score_by_source`, `max_jobs_per_source_per_refresh`, title keywords, seniority exclusions, and remote inclusion. Apply Today filters low-score broad API noise so high-value real postings stay first.
 
 ## LinkedIn / Indeed Email Alert Ingestion

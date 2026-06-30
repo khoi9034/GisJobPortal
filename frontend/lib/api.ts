@@ -23,6 +23,19 @@ export type Job = {
   source: string;
   source_url: string;
   apply_url: string;
+  external_job_id?: string;
+  employer_website?: string;
+  employer_logo?: string;
+  employment_type?: string;
+  apply_is_direct?: boolean;
+  apply_options_json?: Array<Record<string, unknown>>;
+  link_status?: "available" | "source_only" | "missing" | string;
+  original_source?: string;
+  attribution_note?: string;
+  city?: string;
+  state?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   description: string;
   requirements: string;
   salary_min: number | null;
@@ -151,6 +164,7 @@ export type Source = {
   max_jobs_per_source_per_refresh?: number;
   jobs_total?: number;
   strong_matches?: number;
+  missing_links?: number;
   strong_matches_by_region?: Record<string, number>;
 };
 
@@ -185,6 +199,10 @@ export type ApplyTodayJob = {
   close_days_remaining?: number | null;
   freshness_bucket?: string;
   apply_url: string;
+  source_url?: string;
+  link_status?: string;
+  original_source?: string;
+  attribution_note?: string;
   packet_status: string;
   review_status?: string;
   recommendation_reason: string;
@@ -441,6 +459,10 @@ function demoApi<T>(path: string, init?: RequestInit): T {
       close_days_remaining: job.close_days_remaining,
       freshness_bucket: job.freshness_bucket,
       apply_url: job.apply_url,
+      source_url: job.source_url,
+      link_status: job.link_status,
+      original_source: job.original_source,
+      attribution_note: job.attribution_note,
       packet_status: job.application_packet_dir || job.packet_generated_at ? "generated" : "not_generated",
       review_status: job.review_status,
       recommendation_reason: job.match_score >= 70 ? job.score_band || "Strong match score" : "Fresh posting",

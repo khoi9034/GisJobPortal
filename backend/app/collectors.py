@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import UTC, datetime
 from html import unescape
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,8 @@ def normalize_job(raw: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]
         "title": title,
         "company": company,
         "location": location,
+        "city": raw.get("city", ""),
+        "state": raw.get("state", ""),
         "country": raw.get("country") or source.get("country", ""),
         "region": raw.get("region") or source.get("region_scope", ""),
         "international_region": raw.get("international_region") or source.get("international_region", ""),
@@ -55,15 +58,24 @@ def normalize_job(raw: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]
         "timezone_note": raw.get("timezone_note") or source.get("timezone_note", ""),
         "remote_status": raw.get("remote_status", ""),
         "source": raw.get("source") or source["name"],
-        "source_url": raw.get("source_url") or raw.get("apply_url") or source.get("url", ""),
-        "apply_url": raw.get("apply_url") or raw.get("source_url") or source.get("url", ""),
+        "source_url": raw.get("source_url", ""),
+        "apply_url": raw.get("apply_url", ""),
+        "external_job_id": raw.get("external_job_id", ""),
         "external_id": raw.get("external_id", ""),
+        "employer_website": raw.get("employer_website", ""),
+        "employer_logo": raw.get("employer_logo", ""),
+        "employment_type": raw.get("employment_type", ""),
+        "apply_is_direct": bool(raw.get("apply_is_direct")),
+        "apply_options_json": raw.get("apply_options_json", []),
+        "link_status": raw.get("link_status") or ("available" if raw.get("apply_url") else "source_only" if raw.get("source_url") else "missing"),
         "original_source": raw.get("original_source", ""),
         "attribution_note": raw.get("attribution_note", ""),
         "description": raw.get("description", ""),
         "requirements": raw.get("requirements", ""),
         "salary_min": raw.get("salary_min"),
         "salary_max": raw.get("salary_max"),
+        "latitude": _as_float(raw.get("latitude")),
+        "longitude": _as_float(raw.get("longitude")),
         "date_posted": source_posted_at,
         "source_posted_at": source_posted_at,
         "source_updated_at": raw.get("source_updated_at") or raw.get("updated_at", ""),
@@ -78,6 +90,13 @@ def _as_float(value: Any) -> float | None:
         return float(str(value).replace(",", ""))
     except (TypeError, ValueError):
         return None
+
+
+def timestamp_iso(value: Any) -> str:
+    try:
+        return datetime.fromtimestamp(float(value), UTC).isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OSError):
+        return ""
 
 
 def join_text_parts(values: list[Any]) -> str:
@@ -252,22 +271,61 @@ def collect_jsearch(source: dict[str, Any]) -> list[dict[str, Any]]:
             )
             for item in data.get("data", []):
                 place = ", ".join(filter(None, [item.get("job_city"), item.get("job_state"), item.get("job_country")]))
+                apply_options = item.get("apply_options") if isinstance(item.get("apply_options"), list) else []
+                option_link = next(
+                    (
+                        str(option.get("apply_link") or option.get("link") or "").strip()
+                        for option in apply_options
+                        if isinstance(option, dict) and str(option.get("apply_link") or option.get("link") or "").strip()
+                    ),
+                    "",
+                )
+                apply_url = str(item.get("job_apply_link") or option_link or "").strip()
+                source_url = str(item.get("job_google_link") or "").strip()
+                employment_types = item.get("job_employment_types")
+                employment_type = ", ".join(employment_types) if isinstance(employment_types, list) else item.get("job_employment_type", "")
+                requirements = join_text_parts(
+                    [
+                        item.get("required_experience_years"),
+                        item.get("education_required"),
+                        item.get("required_technologies"),
+                        item.get("preferred_technologies"),
+                        item.get("industry"),
+                        item.get("job_function"),
+                    ]
+                )
                 jobs.append(
                     normalize_job(
                         {
                             "title": item.get("job_title", ""),
                             "company": item.get("employer_name", ""),
                             "location": place or item.get("job_location", ""),
-                            "remote_status": "remote" if item.get("job_is_remote") else "",
-                            "source_url": item.get("job_google_link", "") or item.get("job_apply_link", ""),
-                            "apply_url": item.get("job_apply_link", "") or item.get("job_google_link", ""),
+                            "city": item.get("job_city", ""),
+                            "state": item.get("job_state", ""),
+                            "country": item.get("job_country", ""),
+                            "remote_status": item.get("work_arrangement") or ("remote" if item.get("job_is_remote") else ""),
+                            "source_url": source_url,
+                            "apply_url": apply_url,
+                            "link_status": "available" if apply_url else "source_only" if source_url else "missing",
                             "description": plain_text(item.get("job_description", "")),
+                            "requirements": requirements,
                             "salary_min": _as_float(item.get("job_min_salary")),
                             "salary_max": _as_float(item.get("job_max_salary")),
-                            "source_posted_at": item.get("job_posted_at_datetime_utc", ""),
+                            "source_posted_at": item.get("job_posted_at_datetime_utc") or timestamp_iso(item.get("job_posted_at_timestamp")),
+                            "external_job_id": item.get("job_id", ""),
                             "external_id": item.get("job_id", ""),
+                            "employer_logo": item.get("employer_logo", ""),
+                            "employer_website": item.get("employer_website", ""),
+                            "employment_type": employment_type,
+                            "apply_is_direct": item.get("job_apply_is_direct"),
+                            "apply_options_json": apply_options,
+                            "latitude": item.get("job_latitude"),
+                            "longitude": item.get("job_longitude"),
                             "original_source": item.get("job_publisher", ""),
+                            "work_authorization_note": "Visa sponsorship: yes" if item.get("visa_sponsorship") is True else "Visa sponsorship: no" if item.get("visa_sponsorship") is False else "",
+                            "relocation_required": str(item.get("relocation_required", "")),
                             "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.",
+                            "freshness_confidence": "source_posted_date" if item.get("job_posted_at_datetime_utc") or item.get("job_posted_at_timestamp") else "first_seen_only",
                         },
                         source,
                     )
@@ -456,7 +514,7 @@ def collect_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
         return finish_source_jobs(collect_usajobs(source), source)
     if source["type"] == "api" and provider_name(source) == "adzuna":
         return finish_source_jobs(collect_adzuna(source), source)
-    if source["type"] == "api" and provider_name(source) == "jsearch":
+    if source["type"] == "jsearch" or (source["type"] == "api" and provider_name(source) == "jsearch"):
         return finish_source_jobs(collect_jsearch(source), source)
     if source["type"] == "api" and provider_name(source) == "serpapi":
         return finish_source_jobs(collect_serpapi(source), source)

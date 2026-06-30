@@ -103,7 +103,8 @@ def write_daily_report(result: dict[str, Any], jobs: list[dict[str, Any]], repor
                 f"   - Close date: {job.get('source_closes_at') or 'unknown'}",
                 f"   - Days until close: {close_days(job) if close_days(job) is not None else 'unknown'}",
                 f"   - Source: {job.get('source')}",
-                f"   - Apply URL: {job.get('apply_url')}",
+                f"   - Apply URL: {job.get('apply_url') or 'No apply link available from source.'}",
+                f"   - Source URL: {job.get('source_url') or 'No source link available from source.'}",
                 f"   - Recommended because: {recommend_reason(job)}",
             ]
         )

@@ -46,13 +46,13 @@ def config_error(source: dict[str, Any]) -> str:
         return "Greenhouse source requires board_token or URL"
     if kind == "lever" and not (source.get("site") or source.get("url")):
         return "Lever source requires site or URL"
-    if kind in {"manual", "api", "rss", "static_url"} and not source.get("url"):
+    if kind in {"manual", "api", "jsearch", "rss", "static_url"} and not source.get("url"):
         return f"{kind} source requires url"
     return ""
 
 
 def missing_required_credentials(source: dict[str, Any]) -> list[str]:
-    provider = str(source.get("provider", "")).lower()
+    provider = str(source.get("provider") or source.get("type") or "").lower()
     if source.get("name", "").lower().startswith("usajobs"):
         required = ("USAJOBS_USER_AGENT", "USAJOBS_AUTHORIZATION_KEY")
     else:

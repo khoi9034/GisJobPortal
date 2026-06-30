@@ -443,8 +443,9 @@ def sources() -> list[dict[str, Any]]:
     sea_terms = ("vietnam", "singapore", "malaysia", "thailand", "indonesia", "philippines", "southeast asia", "apac")
     source_counts: dict[str, dict[str, Any]] = {}
     for item in live_jobs:
-        bucket = source_counts.setdefault(item.get("source", ""), {"jobs_total": 0, "strong_matches": 0, "strong_matches_by_region": {"southeast_asia": 0}})
+        bucket = source_counts.setdefault(item.get("source", ""), {"jobs_total": 0, "strong_matches": 0, "missing_links": 0, "strong_matches_by_region": {"southeast_asia": 0}})
         bucket["jobs_total"] += 1
+        bucket["missing_links"] += int(not (item.get("apply_url") or item.get("source_url")))
         strong = int(item.get("match_score") or 0) >= 70
         bucket["strong_matches"] += int(strong)
         text = " ".join(str(item.get(field, "")) for field in ("location", "country", "region", "international_region", "remote_status")).lower()
@@ -466,7 +467,7 @@ def sources() -> list[dict[str, Any]]:
         row["gmail_configured"] = gmail_is_configured if row.get("coverage_tier") == "big_board_email_alert" else None
         row["gmail_ingestion_enabled"] = gmail_enabled if row.get("coverage_tier") == "big_board_email_alert" else None
         row["gmail_alert_query"] = os.getenv("GMAIL_ALERT_QUERY", DEFAULT_ALERT_QUERY) if row.get("coverage_tier") == "big_board_email_alert" else ""
-        row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0, "strong_matches_by_region": {"southeast_asia": 0}}))
+        row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0, "missing_links": 0, "strong_matches_by_region": {"southeast_asia": 0}}))
         rows.append(row)
     return rows
 

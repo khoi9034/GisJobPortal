@@ -162,6 +162,27 @@ def checklist_markdown(checklist: dict[str, Any]) -> str:
     return "# Required Documents Checklist\n\n" + "\n".join(rows) + "\n"
 
 
+def job_summary_markdown(job: dict[str, Any]) -> str:
+    apply_url = job.get("apply_url") or ""
+    source_url = job.get("source_url") or ""
+    link_status = job.get("link_status") or ("available" if apply_url else "source_only" if source_url else "missing")
+    return "\n".join(
+        [
+            "# Job Summary",
+            "",
+            f"- Title: {job.get('title')}",
+            f"- Company: {job.get('company')}",
+            f"- Location: {job.get('location')}",
+            f"- Source: {job.get('source')}",
+            f"- Apply URL: {apply_url or 'No apply link available from source.'}",
+            f"- Source URL: {source_url or 'No source link available from source.'}",
+            f"- Original source: {job.get('original_source') or 'unknown'}",
+            f"- Link status: {link_status}",
+            "",
+        ]
+    )
+
+
 def build_packet_files(
     job: dict[str, Any],
     profile: dict[str, Any],
@@ -178,6 +199,7 @@ def build_packet_files(
         f"Transcript summary used: {'yes' if transcript_text else 'no'}"
     )
     return {
+        "job_summary.md": job_summary_markdown(job),
         "cover_letter.md": materials["cover_letter"],
         "followup_email.md": materials["followup_email"],
         "recruiter_message.md": materials["recruiter_message"],

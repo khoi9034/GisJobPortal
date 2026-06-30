@@ -39,6 +39,7 @@ JSON_FIELDS = {
     "penalty_matches",
     "resume_bullet_suggestions",
     "document_checklist",
+    "apply_options_json",
 }
 
 JOB_COLUMNS = [
@@ -56,7 +57,14 @@ JOB_COLUMNS = [
     "source",
     "source_url",
     "apply_url",
+    "external_job_id",
     "external_id",
+    "employer_website",
+    "employer_logo",
+    "employment_type",
+    "apply_is_direct",
+    "apply_options_json",
+    "link_status",
     "original_source",
     "attribution_note",
     "description_hash",
@@ -64,6 +72,10 @@ JOB_COLUMNS = [
     "requirements",
     "salary_min",
     "salary_max",
+    "city",
+    "state",
+    "latitude",
+    "longitude",
     "date_posted",
     "date_found",
     "status",
@@ -192,7 +204,14 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 source TEXT DEFAULT '',
                 source_url TEXT DEFAULT '',
                 apply_url TEXT DEFAULT '',
+                external_job_id TEXT DEFAULT '',
                 external_id TEXT DEFAULT '',
+                employer_website TEXT DEFAULT '',
+                employer_logo TEXT DEFAULT '',
+                employment_type TEXT DEFAULT '',
+                apply_is_direct INTEGER NOT NULL DEFAULT 0,
+                apply_options_json TEXT DEFAULT '[]',
+                link_status TEXT DEFAULT 'missing',
                 original_source TEXT DEFAULT '',
                 attribution_note TEXT DEFAULT '',
                 description_hash TEXT DEFAULT '',
@@ -200,6 +219,10 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 requirements TEXT DEFAULT '',
                 salary_min REAL,
                 salary_max REAL,
+                city TEXT DEFAULT '',
+                state TEXT DEFAULT '',
+                latitude REAL,
+                longitude REAL,
                 date_posted TEXT DEFAULT '',
                 date_found TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'new',
@@ -372,10 +395,21 @@ def ensure_job_columns(conn: Any) -> None:
         "application_confirmation_number": "TEXT DEFAULT ''",
         "application_submission_notes": "TEXT DEFAULT ''",
         "outcome_status": "TEXT NOT NULL DEFAULT 'not_started'",
+        "external_job_id": "TEXT DEFAULT ''",
         "external_id": "TEXT DEFAULT ''",
+        "employer_website": "TEXT DEFAULT ''",
+        "employer_logo": "TEXT DEFAULT ''",
+        "employment_type": "TEXT DEFAULT ''",
+        "apply_is_direct": "INTEGER NOT NULL DEFAULT 0",
+        "apply_options_json": "TEXT DEFAULT '[]'",
+        "link_status": "TEXT DEFAULT 'missing'",
         "original_source": "TEXT DEFAULT ''",
         "attribution_note": "TEXT DEFAULT ''",
         "description_hash": "TEXT DEFAULT ''",
+        "city": "TEXT DEFAULT ''",
+        "state": "TEXT DEFAULT ''",
+        "latitude": "REAL",
+        "longitude": "REAL",
         "country": "TEXT DEFAULT ''",
         "region": "TEXT DEFAULT ''",
         "international_region": "TEXT DEFAULT ''",
@@ -425,6 +459,7 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
                 job[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
     for field in ("is_stale", "is_closed_or_missing", "needs_packet"):
         job[field] = bool(job.get(field))
+    job["apply_is_direct"] = bool(job.get("apply_is_direct"))
     return job
 
 
@@ -568,7 +603,11 @@ def latest_daily_report(path: Path | str = DB_PATH) -> dict[str, Any]:
 
 
 def canonical_job_url(job: dict[str, Any]) -> str:
-    raw = str(job.get("source_url") or job.get("apply_url") or "").strip()
+    source_url = str(job.get("source_url") or "").strip()
+    apply_url = str(job.get("apply_url") or "").strip()
+    source_text = f"{job.get('source', '')} {job.get('attribution_note', '')}".lower()
+    prefer_apply = apply_url and any(provider in source_text for provider in ("adzuna", "jsearch", "serpapi", "remotive", "rapidapi"))
+    raw = apply_url if prefer_apply else source_url or apply_url
     if not raw:
         return ""
     parts = urlsplit(raw)
@@ -586,7 +625,12 @@ def description_fingerprint(job: dict[str, Any]) -> str:
 
 def duplicate_key(job: dict[str, Any]) -> tuple[str, str, str, str]:
     key_url = canonical_job_url(job)
-    fallback = key_url or str(job.get("external_id") or "").strip().lower() or str(job.get("description_hash") or "").strip().lower() or description_fingerprint(job)
+    fallback = (
+        key_url
+        or str(job.get("external_job_id") or job.get("external_id") or "").strip().lower()
+        or str(job.get("description_hash") or "").strip().lower()
+        or description_fingerprint(job)
+    )
     return (
         str(job.get("company", "")).strip().lower(),
         str(job.get("title", "")).strip().lower(),
@@ -621,6 +665,8 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     values["review_status"] = values.get("review_status") or "unreviewed"
     values["priority_bucket"] = values.get("priority_bucket") or priority_for_job(values)
     values["outcome_status"] = values.get("outcome_status") or "not_started"
+    values["link_status"] = values.get("link_status") or ("available" if values.get("apply_url") else "source_only" if values.get("source_url") else "missing")
+    values["apply_is_direct"] = int(bool(values.get("apply_is_direct")))
     for field in (
         "application_url_opened_at",
         "application_started_at",
@@ -654,6 +700,7 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
                     updated[field] = dumps(updated.get(field))
             updated["is_stale"] = int(bool(updated.get("is_stale")))
             updated["is_closed_or_missing"] = int(bool(updated.get("is_closed_or_missing")))
+            updated["apply_is_direct"] = int(bool(updated.get("apply_is_direct")))
             update_fields = [
                 field for field in JOB_COLUMNS
                 if field not in {
@@ -731,7 +778,7 @@ def mark_missing_jobs(source: str, checked_at: str, seen_jobs: list[dict[str, An
     init_db(path)
     seen = {duplicate_key(job) for job in seen_jobs}
     with connection(path) as conn:
-        rows = conn.execute("SELECT id, title, company, location, source_url, apply_url FROM jobs WHERE source = ?", (source,)).fetchall()
+        rows = conn.execute("SELECT id, title, company, location, source_url, apply_url, external_job_id, external_id, description_hash FROM jobs WHERE source = ?", (source,)).fetchall()
         missing_ids = [row["id"] for row in rows if duplicate_key(dict(row)) not in seen]
         for job_id in missing_ids:
             conn.execute("UPDATE jobs SET is_closed_or_missing = 1, last_checked_at = ? WHERE id = ?", (checked_at, job_id))
@@ -883,6 +930,10 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         "close_days_remaining",
         "freshness_bucket",
         "apply_url",
+        "source_url",
+        "original_source",
+        "attribution_note",
+        "link_status",
         "review_status",
     }
     return [

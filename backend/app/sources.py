@@ -9,6 +9,7 @@ from .paths import SEARCH_PROFILES_PATH, SOURCES_PATH
 
 SOURCE_TYPES = {
     "api",
+    "jsearch",
     "rss",
     "greenhouse",
     "lever",

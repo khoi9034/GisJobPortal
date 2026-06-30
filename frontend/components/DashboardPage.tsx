@@ -105,6 +105,24 @@ function SampleJobBadge({ job }: { job: { source: string } }) {
   return isSampleJob(job) ? <span className="chip warning">Demo sample job — not a live posting</span> : null;
 }
 
+function jobLink(job: Pick<Job, "apply_url" | "source_url"> | Pick<ApplyTodayJob, "apply_url" | "source_url">) {
+  return job.apply_url || job.source_url || "";
+}
+
+function LinkNotice({ job }: { job: Pick<Job, "apply_url" | "source_url" | "link_status"> | Pick<ApplyTodayJob, "apply_url" | "source_url" | "link_status"> }) {
+  return jobLink(job) ? null : <span className="chip warning">No apply link available from source.</span>;
+}
+
+function SourceAttribution({ job }: { job: Pick<Job, "source" | "original_source" | "attribution_note"> | Pick<ApplyTodayJob, "source" | "original_source" | "attribution_note"> }) {
+  const isJsearch = /jsearch|rapidapi/i.test(`${job.source} ${job.attribution_note || ""}`);
+  return (
+    <>
+      {isJsearch && <span className="chip">JSearch / Google Jobs result</span>}
+      {job.original_source && <span className="chip">Original source: {job.original_source}</span>}
+    </>
+  );
+}
+
 function sourceConfidence(job: Job) {
   return job.freshness_confidence === "source_posted_date" ? 0 : 1;
 }
@@ -331,7 +349,12 @@ export default function DashboardPage({ view }: { view: View }) {
   }
 
   async function openApply(job: Job) {
-    window.open(job.apply_url, "_blank", "noopener,noreferrer");
+    const link = jobLink(job);
+    if (!link) {
+      setMessage("No apply link available from source.");
+      return;
+    }
+    window.open(link, "_blank", "noopener,noreferrer");
     await patchApplication(job, { application_url_opened_at: new Date().toISOString().slice(0, 10) });
   }
 
@@ -429,7 +452,7 @@ export default function DashboardPage({ view }: { view: View }) {
                   </>
                 )}
                 <br />
-                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0} | total visible: {source.jobs_total ?? 0} | strong matches: {source.strong_matches ?? 0} | SEA strong: {source.strong_matches_by_region?.southeast_asia ?? 0} | sampled: {source.jobs_sampled ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
+                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0} | total visible: {source.jobs_total ?? 0} | strong matches: {source.strong_matches ?? 0} | missing links: {source.missing_links ?? 0} | SEA strong: {source.strong_matches_by_region?.southeast_asia ?? 0} | sampled: {source.jobs_sampled ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
                 <div className="chips">
                   {(source.supports_posted_date || source.posted_date_supported) && <span className="chip green">posted date</span>}
                   {(source.supports_close_date || source.close_date_supported) && <span className="chip green">close date</span>}
@@ -633,6 +656,7 @@ function ApplyTodayCard({
   onApplied: (job: Pick<Job, "id">) => void;
   onGeneratePacket: (job: Pick<Job, "id" | "title">) => void;
 }) {
+  const link = jobLink(job);
   return (
     <article className="job-card">
       <div className="job-head">
@@ -654,11 +678,13 @@ function ApplyTodayCard({
         <span className="chip">{job.packet_status}</span>
         <span className="chip">{job.review_status || "unreviewed"}</span>
         <SampleJobBadge job={job} />
+        <SourceAttribution job={job} />
+        <LinkNotice job={job} />
       </div>
       <div className="actions">
         <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
         <button className="button warning" onClick={() => onGeneratePacket(job)}>Generate Packet</button>
-        <a className="button primary" href={job.apply_url} target="_blank">Open Apply Link</a>
+        {link ? <a className="button primary" href={link} target="_blank">Open Apply Link</a> : null}
         <button className="button" onClick={() => onReview(job, "interested")}>Mark Interested</button>
         <button className="button" onClick={() => onStarted(job)}>Mark Started</button>
         <button className="button" onClick={() => onApplied(job)}>Mark Applied</button>
@@ -687,6 +713,7 @@ function ApplicationJobCard({
   onCopy: (text: string, label: string) => void;
 }) {
   const packetExists = Boolean(job.application_packet_dir || job.packet_generated_at || !job.needs_packet);
+  const link = jobLink(job);
   return (
     <article className="job-card">
       <div className="job-head">
@@ -706,10 +733,12 @@ function ApplicationJobCard({
         <span className="chip">{job.status}</span>
         <span className="chip">{scoreBand(job)}</span>
         <SampleJobBadge job={job} />
+        <SourceAttribution job={job} />
+        <LinkNotice job={job} />
       </div>
       <div className="actions">
         <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
-        <button className="button" onClick={() => onOpenApply(job)}>Open Apply Link</button>
+        {link ? <button className="button" onClick={() => onOpenApply(job)}>Open Apply Link</button> : null}
         <Link className="button" href={`/jobs/${job.id}`}>View Packet</Link>
         <button className="button" disabled={!job.generated_cover_letter} onClick={() => onCopy(job.generated_cover_letter, "cover letter")}>Copy Cover Letter</button>
         <button className="button" disabled={!job.generated_followup_email} onClick={() => onCopy(job.generated_followup_email, "follow-up email")}>Copy Follow-Up Email</button>
@@ -830,6 +859,7 @@ function ReviewJobCard({
   onGeneratePacket: (job: Job) => void;
 }) {
   const closeDays = job.close_days_remaining ?? daysUntil(job.source_closes_at);
+  const link = jobLink(job);
   return (
     <article className="job-card">
       <div className="job-head">
@@ -849,6 +879,8 @@ function ReviewJobCard({
         <span className="chip green">{scoreBand(job)}</span>
         <span className="chip">{job.priority_bucket || "medium"}</span>
         <SampleJobBadge job={job} />
+        <SourceAttribution job={job} />
+        <LinkNotice job={job} />
         <FreshnessChips job={job} />
         {job.fit_reasons?.[0] && <span className="chip">{job.fit_reasons[0]}</span>}
       </div>
@@ -860,7 +892,7 @@ function ReviewJobCard({
         <button className="button warning" onClick={() => onGeneratePacket(job)}>Generate Packet</button>
         <button className="button" onClick={() => onStatus(job, "ready_to_apply")}>Mark Ready to Apply</button>
         <button className="button" onClick={() => onStatus(job, "applied")}>Mark Applied</button>
-        <a className="button primary" href={job.apply_url} target="_blank">Open Apply Link</a>
+        {link ? <a className="button primary" href={link} target="_blank">Open Apply Link</a> : null}
       </div>
     </article>
   );
@@ -926,6 +958,7 @@ function JobCard({
   onGenerate: (job: Job) => void;
   onCopy: (text: string, label: string) => void;
 }) {
+  const link = jobLink(job);
   return (
     <article className="job-card">
       <div className="job-head">
@@ -943,6 +976,8 @@ function JobCard({
         <span className="chip green">{job.status}</span>
         <span className="chip green">{scoreBand(job)}</span>
         <SampleJobBadge job={job} />
+        <SourceAttribution job={job} />
+        <LinkNotice job={job} />
         <FreshnessChips job={job} />
         {(job.fit_reasons || []).slice(0, 3).map((reason) => <span className="chip" key={reason}>{reason}</span>)}
         {(job.missing_skills || []).slice(0, 3).map((skill) => <span className="chip red" key={skill}>{skill}</span>)}
@@ -954,7 +989,7 @@ function JobCard({
         <button className="button" onClick={() => onStatus(job, "skipped")}>Skip</button>
         <button className="button" onClick={() => onStatus(job, "applied")}>Mark Applied</button>
         <button className="button warning" onClick={() => onGenerate(job)}>Generate Materials</button>
-        <a className="button" href={job.apply_url} target="_blank">Open Apply Link</a>
+        {link ? <a className="button" href={link} target="_blank">Open Apply Link</a> : null}
         <button className="button" disabled={!job.generated_cover_letter} onClick={() => onCopy(job.generated_cover_letter, "cover letter")}>Copy Cover Letter</button>
         <button className="button" disabled={!job.generated_followup_email} onClick={() => onCopy(job.generated_followup_email, "follow-up email")}>Copy Follow-Up Email</button>
       </div>

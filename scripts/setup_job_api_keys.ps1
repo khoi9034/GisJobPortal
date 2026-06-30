@@ -35,6 +35,8 @@ if (-not (Test-Path $RepoRoot)) {
     throw "Repo root not found: $RepoRoot"
 }
 
+Write-Host "Use a newly rotated RapidAPI key. Any key pasted into chat should be treated as compromised."
+
 if (-not (Test-Path $EnvPath)) {
     New-Item -ItemType Directory -Force -Path (Split-Path $EnvPath) | Out-Null
     Set-Content -Path $EnvPath -Value @(

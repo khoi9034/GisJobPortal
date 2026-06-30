@@ -27,6 +27,20 @@ function sampleJobBadge(job: Job) {
   return job.source === "Sample GIS Jobs" ? <span className="chip warning">Demo sample job — not a live posting</span> : null;
 }
 
+function jobLink(job: Job) {
+  return job.apply_url || job.source_url || "";
+}
+
+function sourceAttribution(job: Job) {
+  const isJsearch = /jsearch|rapidapi/i.test(`${job.source} ${job.attribution_note || ""}`);
+  return (
+    <>
+      {isJsearch && <span className="chip">JSearch / Google Jobs result</span>}
+      {job.original_source && <span className="chip">Original source: {job.original_source}</span>}
+    </>
+  );
+}
+
 export default function JobDetail({ id }: { id: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [packet, setPacket] = useState<ApplicationPacket | null>(null);
@@ -71,7 +85,13 @@ export default function JobDetail({ id }: { id: string }) {
   }
 
   async function openApply() {
-    window.open(job?.apply_url, "_blank", "noopener,noreferrer");
+    if (!job) return;
+    const link = jobLink(job);
+    if (!link) {
+      setMessage("No apply link available from source.");
+      return;
+    }
+    window.open(link, "_blank", "noopener,noreferrer");
     await updateApplication({ application_url_opened_at: new Date().toISOString().slice(0, 10) });
   }
 
@@ -151,6 +171,8 @@ export default function JobDetail({ id }: { id: string }) {
             <span className="chip">{job.freshness_bucket || "unknown"}</span>
             <span className="chip">{job.freshness_confidence || "unknown"}</span>
             {sampleJobBadge(job)}
+            {sourceAttribution(job)}
+            {!jobLink(job) && <span className="chip warning">No apply link available from source.</span>}
             {job.is_stale && <span className="chip red">stale</span>}
             {isClosingSoon(job) && <span className="chip warning">closing soon</span>}
           </div>
@@ -171,7 +193,7 @@ export default function JobDetail({ id }: { id: string }) {
         <button className="button warning" onClick={generate}>Generate Application Packet</button>
         <button className="button" onClick={viewPacket}>View Application Packet</button>
         <button className="button" onClick={addSubmissionNotes}>Add Submission Notes</button>
-        <button className="button primary" onClick={openApply}>Open Apply Link</button>
+        {jobLink(job) ? <button className="button primary" onClick={openApply}>Open Apply Link</button> : null}
       </div>
       {message && <p className="muted">{message}</p>}
 
@@ -196,6 +218,16 @@ export default function JobDetail({ id }: { id: string }) {
         <aside className="detail-section">
           <h3>Application Execution</h3>
           <p className="muted">Manual apply only. This app never logs in, submits applications, or sends emails.</p>
+          <p><strong>Apply URL:</strong> {job.apply_url ? <a href={job.apply_url} target="_blank">{job.apply_url}</a> : "No apply link available from source."}</p>
+          <p><strong>Source URL:</strong> {job.source_url ? <a href={job.source_url} target="_blank">{job.source_url}</a> : "No source link available from source."}</p>
+          <p><strong>Original source:</strong> {job.original_source || "unknown"}</p>
+          <p><strong>Link status:</strong> {job.link_status || (job.apply_url ? "available" : job.source_url ? "source_only" : "missing")}</p>
+          {job.apply_options_json?.length ? (
+            <>
+              <h3>Apply Options</h3>
+              <ul>{job.apply_options_json.map((option, index) => <li key={index}>{String(option.publisher || option.apply_link || option.link || JSON.stringify(option))}</li>)}</ul>
+            </>
+          ) : null}
           <p><strong>Packet:</strong> {job.application_packet_dir || job.packet_generated_at ? "available" : "not generated"}</p>
           <p><strong>Export command:</strong></p>
           <pre>python scripts/export_application_packet.py --job-id {job.id}</pre>

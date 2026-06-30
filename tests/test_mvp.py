@@ -183,7 +183,7 @@ class MvpTests(unittest.TestCase):
     def test_source_loading(self):
         sources = load_sources()
         self.assertTrue(any(source["type"] == "manual" and source["enabled"] for source in sources))
-        self.assertTrue(all(source["type"] in {"api", "rss", "greenhouse", "lever", "static_url", "manual", "linkedin_email_alert", "indeed_email_alert", "job_alert_email", "gmail_job_alerts"} for source in sources))
+        self.assertTrue(all(source["type"] in {"api", "jsearch", "rss", "greenhouse", "lever", "static_url", "manual", "linkedin_email_alert", "indeed_email_alert", "job_alert_email", "gmail_job_alerts"} for source in sources))
         broad = [source for source in sources if source.get("coverage_tier") == "broad_api"]
         self.assertGreaterEqual(len(broad), 4)
         self.assertTrue(all(not source.get("enabled") or source["name"] == "Remotive APAC Remote" for source in broad))
@@ -194,13 +194,13 @@ class MvpTests(unittest.TestCase):
     def test_southeast_asia_sources_are_disabled_safely(self):
         sources = load_sources()
         names = {source["name"]: source for source in sources}
-        for name in ["JSearch SEA", "SerpApi Google Jobs SEA", "Adzuna International", "Remotive APAC Remote"]:
+        for name in ["JSearch Southeast Asia GIS", "SerpApi Google Jobs SEA", "Adzuna International", "Remotive APAC Remote"]:
             self.assertEqual(names[name]["coverage_tier"], "broad_api")
             self.assertIn(names[name]["region_scope"], {"southeast_asia", "international", "apac"})
         self.assertTrue(names["Remotive APAC Remote"]["enabled"])
         self.assertEqual(names["Remotive APAC Remote"]["min_score_by_source"], 55)
         self.assertEqual(names["Remotive APAC Remote"]["max_jobs_per_source_per_refresh"], 25)
-        for name in ["JSearch SEA", "SerpApi Google Jobs SEA", "Adzuna International"]:
+        for name in ["JSearch Southeast Asia GIS", "SerpApi Google Jobs SEA", "Adzuna International"]:
             self.assertFalse(names[name]["enabled"])
         for name in ["JobStreet JobsDB Job Alerts Email", "Glints Job Alerts Email", "VietnamWorks Job Alerts Email", "TopCV Job Alerts Email"]:
             self.assertFalse(names[name]["enabled"])
@@ -210,14 +210,31 @@ class MvpTests(unittest.TestCase):
             self.assertFalse(names[name]["enabled"])
             self.assertEqual(names[name]["coverage_tier"], "unsupported")
 
+    def test_jsearch_source_profiles_are_disabled_and_keyed(self):
+        names = {source["name"]: source for source in load_sources()}
+        for name in [
+            "JSearch GIS US",
+            "JSearch Planning US",
+            "JSearch Remote GIS",
+            "JSearch Southeast Asia GIS",
+            "JSearch Vietnam GIS",
+            "JSearch Singapore GIS",
+            "JSearch APAC Remote Sensing",
+            "JSearch Location Intelligence",
+        ]:
+            self.assertEqual(names[name]["type"], "jsearch")
+            self.assertFalse(names[name]["enabled"])
+            self.assertTrue(names[name]["requires_api_key"])
+            self.assertEqual(names[name]["env_key"], "RAPIDAPI_KEY")
+
     def test_enabled_sea_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
-            source = {"name": "JSearch SEA", "type": "api", "provider": "jsearch", "url": "https://jsearch.p.rapidapi.com/search", "enabled": True}
+            source = {"name": "JSearch Southeast Asia GIS", "type": "jsearch", "url": "https://jsearch.p.rapidapi.com/search", "enabled": True}
             with patch.dict(os.environ, {"RAPIDAPI_KEY": ""}, clear=False), patch("backend.app.collectors.load_backend_env"):
                 result = collectors.refresh_jobs(path, sources_override=[source])
         self.assertEqual(result["sources_checked"], 1)
-        self.assertIn("JSearch SEA", result["errors"])
+        self.assertIn("JSearch Southeast Asia GIS", result["errors"])
 
     def test_enabled_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -237,6 +254,64 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(jobs[0]["source_posted_at"], "2026-06-01T00:00:00Z")
         self.assertEqual(jobs[0]["original_source"], "")
         self.assertIn("Adzuna", jobs[0]["attribution_note"])
+
+    def test_jsearch_collector_normalizes_links_and_metadata(self):
+        source = {"name": "JSearch GIS US", "type": "jsearch", "url": "https://jsearch.p.rapidapi.com/search", "enabled": True, "search_terms": ["GIS Analyst"], "locations": ["North Carolina"]}
+        data = {
+            "data": [{
+                "job_id": "js-1",
+                "job_title": "GIS Analyst",
+                "employer_name": "Example County",
+                "employer_logo": "https://logo.example.com/logo.png",
+                "employer_website": "https://examplecounty.gov",
+                "job_publisher": "Google Jobs",
+                "job_employment_type": "FULLTIME",
+                "job_apply_link": "https://jobs.example.com/apply/1",
+                "job_apply_is_direct": True,
+                "apply_options": [{"publisher": "County Careers", "apply_link": "https://jobs.example.com/apply/1"}],
+                "job_description": "<p>ArcGIS parcels zoning</p>",
+                "job_is_remote": False,
+                "job_posted_at_datetime_utc": "2026-06-01T00:00:00Z",
+                "job_city": "Charlotte",
+                "job_state": "NC",
+                "job_country": "US",
+                "job_google_link": "https://www.google.com/search?q=job",
+                "job_min_salary": 50000,
+                "job_max_salary": 70000,
+                "required_technologies": ["ArcGIS", "Python"],
+            }]
+        }
+        with patch.dict(os.environ, {"RAPIDAPI_KEY": "new-rotated-key"}, clear=False), patch("backend.app.collectors.load_backend_env"), patch("backend.app.collectors.fetch_json_request", return_value=data):
+            jobs = collectors.collect_jsearch(source)
+        job = jobs[0]
+        self.assertEqual(job["title"], "GIS Analyst")
+        self.assertEqual(job["company"], "Example County")
+        self.assertEqual(job["location"], "Charlotte, NC, US")
+        self.assertEqual(job["external_job_id"], "js-1")
+        self.assertEqual(job["apply_url"], "https://jobs.example.com/apply/1")
+        self.assertEqual(job["source_url"], "https://www.google.com/search?q=job")
+        self.assertEqual(job["link_status"], "available")
+        self.assertTrue(job["apply_is_direct"])
+        self.assertEqual(job["apply_options_json"][0]["publisher"], "County Careers")
+        self.assertIn("ArcGIS", job["requirements"])
+
+    def test_jsearch_apply_option_and_missing_link_fallbacks(self):
+        source = {"name": "JSearch GIS US", "type": "jsearch", "url": "https://jsearch.p.rapidapi.com/search", "enabled": True, "search_terms": ["GIS Analyst"], "locations": [""]}
+        data = {
+            "data": [
+                {"job_id": "js-2", "job_title": "GIS Analyst", "employer_name": "County", "job_location": "NC", "apply_options": [{"apply_link": "https://example.com/apply"}]},
+                {"job_id": "js-3", "job_title": "GIS Technician", "employer_name": "City", "job_location": "NC", "job_google_link": "https://google.example/job"},
+                {"job_id": "js-4", "job_title": "Spatial Analyst", "employer_name": "Planner", "job_location": "NC"},
+            ]
+        }
+        with patch.dict(os.environ, {"RAPIDAPI_KEY": "new-rotated-key"}, clear=False), patch("backend.app.collectors.load_backend_env"), patch("backend.app.collectors.fetch_json_request", return_value=data):
+            jobs = collectors.collect_jsearch(source)
+        self.assertEqual(jobs[0]["apply_url"], "https://example.com/apply")
+        self.assertEqual(jobs[0]["link_status"], "available")
+        self.assertEqual(jobs[1]["source_url"], "https://google.example/job")
+        self.assertEqual(jobs[1]["apply_url"], "")
+        self.assertEqual(jobs[1]["link_status"], "source_only")
+        self.assertEqual(jobs[2]["link_status"], "missing")
 
     def test_remotive_collector_normalizes_mock_response(self):
         source = {"name": "Remotive Remote Jobs", "type": "api", "provider": "remotive", "url": "https://remotive.com/api/remote-jobs", "enabled": True, "search_terms": ["GIS"]}
@@ -292,6 +367,14 @@ class MvpTests(unittest.TestCase):
         self.assertIn("Read-Host", text)
         self.assertIn("backend\\.env", text)
         self.assertNotRegex(text, r"(ADZUNA_APP_KEY|RAPIDAPI_KEY|SERPAPI_KEY)=['\"][A-Za-z0-9_-]{12,}")
+
+    def test_sync_job_api_keys_to_render_script_is_secret_safe(self):
+        text = Path("scripts/sync_job_api_keys_to_render.ps1").read_text(encoding="utf-8")
+        self.assertIn("srv-d90stu3sq97s739mpta0", text)
+        self.assertIn("Read-Host", text)
+        self.assertIn("RAPIDAPI_KEY", text)
+        self.assertNotRegex(text, r"RAPIDAPI_KEY\s*=\s*['\"][A-Za-z0-9_-]{12,}")
+        self.assertNotIn("Set-Content", text)
 
     def test_parse_linkedin_alert_text_with_multiple_jobs(self):
         text = """
@@ -538,6 +621,16 @@ class MvpTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("Remotive APAC Remote", text)
         self.assertNotIn("do-not-print-me", text)
+
+    def test_source_quality_counts_missing_jsearch_links(self):
+        jobs = [
+            {**self.job, "source": "JSearch GIS US", "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.", "apply_url": "", "source_url": "", "match_score": 72},
+            {**self.job, "source": "JSearch GIS US", "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.", "apply_url": "https://example.com/apply", "source_url": "", "match_score": 60},
+        ]
+        sources = [{"name": "JSearch GIS US", "enabled": True, "last_status": "ok: 1 new, 1 duplicates", "errors_last_run": ""}]
+        with patch("scripts.analyze_source_quality.db.list_jobs", return_value=jobs), patch("scripts.analyze_source_quality.db.list_sources", return_value=sources):
+            row = next(item for item in analyze_source_quality.rows() if item["source"] == "JSearch GIS US")
+        self.assertEqual(row["missing_links"], 1)
 
     def test_greenhouse_collector_normalizes_mock_response(self):
         source = {
@@ -1135,6 +1228,11 @@ class MvpTests(unittest.TestCase):
         self.assertIn("Demo sample job — not a live posting", dashboard_text)
         self.assertIn("Demo sample job — not a live posting", detail_text)
 
+        for text in (dashboard_text, detail_text):
+            self.assertIn("No apply link available from source.", text)
+            self.assertIn("JSearch / Google Jobs result", text)
+            self.assertIn("Original source:", text)
+
     def test_apply_today_defaults_to_five_and_excludes_samples(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
@@ -1184,7 +1282,7 @@ class MvpTests(unittest.TestCase):
             db.insert_job({
                 **self.job,
                 "title": "SEA Broad Noise",
-                "source": "JSearch SEA",
+                "source": "JSearch Southeast Asia GIS",
                 "source_url": "https://example.com/sea-broad-noise",
                 "location": "Singapore",
                 "country": "Singapore",
@@ -1344,8 +1442,24 @@ class MvpTests(unittest.TestCase):
             combined = "\n".join(path.read_text(encoding="utf-8") for path in exported.glob("*.md"))
             names = {path.name for path in exported.glob("*.md")}
             self.assertIn("submission_checklist.md", names)
+            self.assertIn("job_summary.md", names)
+            self.assertIn("Source URL: https://example.com/export", exported.joinpath("job_summary.md").read_text(encoding="utf-8"))
             self.assertNotIn(secret, combined)
             self.assertNotIn(r"C:\Dev\GisJobPortal\private", combined)
+
+    def test_export_application_packet_warns_when_link_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "jobs.sqlite3"
+            packet_dir = root / "packet"
+            packet_dir.mkdir()
+            packet_dir.joinpath("cover_letter.md").write_text("hello", encoding="utf-8")
+            job_id, _ = db.insert_job({**self.job, "source_url": "", "apply_url": ""}, db_path)
+            db.update_job_fields(job_id, {"application_packet_dir": str(packet_dir)}, db_path)
+            exported = export_application_packet.export_packet(job_id, db_path, root / "exports")
+            summary = exported.joinpath("job_summary.md").read_text(encoding="utf-8")
+        self.assertIn("No apply link available from source.", summary)
+        self.assertIn("Link status: missing", summary)
 
     def test_refresh_creates_report_when_folder_missing(self):
         with tempfile.TemporaryDirectory() as tmp:

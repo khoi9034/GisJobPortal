@@ -24,6 +24,8 @@ def safe_text(text: str) -> str:
 
 
 def job_summary(job: dict[str, Any]) -> str:
+    apply_url = job.get("apply_url") or ""
+    source_url = job.get("source_url") or ""
     return "\n".join(
         [
             "# Job Summary",
@@ -35,7 +37,10 @@ def job_summary(job: dict[str, Any]) -> str:
             f"- Match score: {job.get('match_score')}",
             f"- Score band: {job.get('score_band') or 'unknown'}",
             f"- Close date: {job.get('source_closes_at') or 'unknown'}",
-            f"- Apply URL: {job.get('apply_url')}",
+            f"- Apply URL: {apply_url or 'No apply link available from source.'}",
+            f"- Source URL: {source_url or 'No source link available from source.'}",
+            f"- Original source: {job.get('original_source') or 'unknown'}",
+            f"- Link status: {job.get('link_status') or ('available' if apply_url else 'source_only' if source_url else 'missing')}",
             "",
         ]
     )
