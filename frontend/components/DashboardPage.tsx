@@ -403,7 +403,7 @@ export default function DashboardPage({ view }: { view: View }) {
                   <>
                     <br />
                     <span className="muted">
-                      Gmail ingestion: {source.gmail_configured ? "configured" : "not configured"} | Query: {source.gmail_alert_query || "not set"} | Safety: no scraping, no auto-apply
+                      Gmail ingestion: {source.gmail_ingestion_enabled ? "enabled" : "disabled"} / {source.gmail_configured ? "configured" : "not configured"} | Query: {source.gmail_alert_query || "not set"} | Safety: no scraping, no auto-apply
                     </span>
                   </>
                 )}
@@ -436,7 +436,7 @@ export default function DashboardPage({ view }: { view: View }) {
           <section className="settings-section">
             <h3>Job Alert Ingestion</h3>
             <p className="muted">LinkedIn/Indeed coverage comes from authorized Gmail job-alert emails. The portal does not scrape those sites, log in, or auto-apply.</p>
-            <p className="muted">Gmail setup: {sources.some((source) => source.coverage_tier === "big_board_email_alert" && source.gmail_configured) ? "configured" : "not configured"} | Imported alert jobs: {sources.filter((source) => source.coverage_tier === "big_board_email_alert").reduce((sum, source) => sum + (source.jobs_total || 0), 0)} | Pasted import is local/admin-only.</p>
+            <p className="muted">Gmail ingestion: {sources.some((source) => source.coverage_tier === "big_board_email_alert" && source.gmail_ingestion_enabled) ? "enabled" : "disabled"} | Gmail setup: {sources.some((source) => source.coverage_tier === "big_board_email_alert" && source.gmail_configured) ? "configured" : "not configured"} | Imported alert jobs: {sources.filter((source) => source.coverage_tier === "big_board_email_alert").reduce((sum, source) => sum + (source.jobs_total || 0), 0)} | Pasted import is local/admin-only.</p>
             <label className="muted" htmlFor="alert-source">Source</label>
             <select id="alert-source" value={alertSource} onChange={(event) => setAlertSource(event.target.value)}>
               <option value="linkedin">LinkedIn</option>

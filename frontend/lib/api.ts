@@ -129,6 +129,7 @@ export type Source = {
   scraping_supported?: boolean;
   auto_apply_supported?: boolean;
   gmail_configured?: boolean | null;
+  gmail_ingestion_enabled?: boolean | null;
   gmail_alert_query?: string;
   credentials_configured?: boolean;
   credential_missing?: boolean;

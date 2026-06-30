@@ -384,8 +384,8 @@ LinkedIn and Indeed coverage is supported through Gmail job-alert emails, not sc
 
 Current MVP:
 
-- parser and bulk pasted-email fallback are implemented.
-- Gmail API fetch is guarded and skips cleanly until OAuth credentials/token are configured.
+- parser, bulk pasted-email fallback, and live Gmail API fetch are implemented.
+- Gmail API fetch skips cleanly until OAuth credentials/token are configured.
 - no LinkedIn/Indeed scraping, login automation, browser bots, auto-apply, or email sending.
 
 Local placeholder config in `backend/.env`:
@@ -395,12 +395,16 @@ GMAIL_INGESTION_ENABLED=false
 GMAIL_CLIENT_ID=replace_with_local_secret_only
 GMAIL_CLIENT_SECRET=replace_with_local_secret_only
 GMAIL_TOKEN_PATH=runtime/secrets/gmail_token.local.json
-GMAIL_ALERT_QUERY=(from:linkedin.com OR from:indeed.com) newer_than:14d
+GMAIL_TOKEN_JSON_BASE64=replace_with_render_secret_only
+GMAIL_ALERT_QUERY=(from:linkedin.com OR from:indeed.com OR subject:("job alert")) newer_than:14d
 ```
 
-Run the safe skeleton:
+Run local + hosted setup:
 
 ```powershell
+.\scripts\setup_gmail_local_env.ps1
+python scripts\setup_gmail_oauth.py
+.\scripts\sync_gmail_to_render.ps1
 python scripts\ingest_gmail_job_alerts.py
 ```
 

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import base64
 import io
 import os
 import json
@@ -9,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -23,7 +24,7 @@ from backend.app.documents import (
     extract_transcript,
     should_use_transcript,
 )
-from backend.app.email_alerts import create_job_from_alert, dedupe_alert_jobs, parse_alert_jobs, parse_indeed_alert_text, parse_linkedin_alert_text
+from backend.app.email_alerts import create_job_from_alert, dedupe_alert_jobs, ingest_gmail_alerts, load_gmail_token, parse_alert_jobs, parse_indeed_alert_text, parse_linkedin_alert_text
 from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
 from backend.app.paths import admin_refresh_token, api_env, cors_origins, database_path, database_runtime_type, database_type, database_url, database_url_scheme
@@ -293,15 +294,45 @@ class MvpTests(unittest.TestCase):
 
     def test_gmail_missing_credentials_skip_cleanly(self):
         output = io.StringIO()
-        with patch.dict(os.environ, {"GMAIL_INGESTION_ENABLED": "false"}, clear=True), patch("scripts.ingest_gmail_job_alerts.load_backend_env"), redirect_stdout(output):
+        with patch.dict(os.environ, {"GMAIL_INGESTION_ENABLED": "false"}, clear=True), patch("backend.app.email_alerts.load_backend_env"), redirect_stdout(output):
             self.assertEqual(ingest_gmail_job_alerts.main([]), 0)
         self.assertIn("not configured", output.getvalue())
         self.assertNotIn("client_secret_value", output.getvalue())
 
     def test_gmail_token_path_is_ignored_runtime_secret(self):
         self.assertIn("runtime/secrets/", Path(".gitignore").read_text(encoding="utf-8"))
-        with patch.dict(os.environ, {}, clear=True), patch("scripts.ingest_gmail_job_alerts.load_backend_env"):
+        with patch.dict(os.environ, {}, clear=True), patch("backend.app.email_alerts.load_backend_env"):
             self.assertEqual(ingest_gmail_job_alerts.gmail_config()["token_path"], "runtime/secrets/gmail_token.local.json")
+
+    def test_setup_gmail_oauth_uses_readonly_scope(self):
+        text = Path("scripts/setup_gmail_oauth.py").read_text(encoding="utf-8")
+        self.assertIn("gmail.readonly", text)
+        self.assertIn("runtime", str(setup_gmail_oauth.TOKEN_PATH))
+        self.assertNotRegex(text, r"refresh_token['\"]?:\\s*['\"][A-Za-z0-9._-]{20,}")
+
+    def test_gmail_setup_helpers_do_not_hardcode_secrets(self):
+        combined = Path("scripts/setup_gmail_local_env.ps1").read_text(encoding="utf-8") + Path("scripts/sync_gmail_to_render.ps1").read_text(encoding="utf-8")
+        self.assertIn("Read-Host", combined)
+        self.assertIn("GMAIL_TOKEN_JSON_BASE64", combined)
+        self.assertNotRegex(combined, r"ya29\\.|1//[A-Za-z0-9_-]{20,}|GMAIL_CLIENT_SECRET\\s*=\\s*['\"][A-Za-z0-9_-]{20,}")
+
+    def test_hosted_gmail_token_base64_decodes_without_printing_secret(self):
+        token = {"refresh_token": "refresh-token-secret", "access_token": "access-token-secret"}
+        encoded = base64.b64encode(json.dumps(token).encode("utf-8")).decode("ascii")
+        with patch.dict(os.environ, {"GMAIL_TOKEN_JSON_BASE64": encoded}, clear=True), patch("backend.app.email_alerts.load_backend_env"):
+            loaded = load_gmail_token()
+        self.assertEqual(loaded["refresh_token"], "refresh-token-secret")
+
+    def test_mocked_gmail_ingestion_creates_alert_jobs(self):
+        emails = [{"id": "m1", "source_hint": "linkedin", "text": "GIS Analyst at Example County, Concord, NC\nhttps://www.linkedin.com/jobs/view/123456"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            with patch("backend.app.email_alerts.gmail_config", return_value={"enabled": "true", "client_id": "id", "client_secret": "secret", "token_path": "runtime/secrets/gmail_token.local.json", "token_json_base64": "x", "query": "q"}), patch("backend.app.email_alerts.gmail_configured", return_value=True), patch("backend.app.email_alerts.gmail_fetch_alert_texts", return_value=emails):
+                result = ingest_gmail_alerts(path)
+                rows = db.list_jobs(path=path)
+        self.assertEqual(result["alert_emails_checked"], 1)
+        self.assertEqual(result["alert_jobs_inserted"], 1)
+        self.assertEqual(rows[0]["source"], "LinkedIn Job Alerts Email")
 
     def test_alert_import_endpoint_scores_and_adds_daily_review_job(self):
         text = "GIS Analyst at Example County, Concord, NC\nhttps://www.linkedin.com/jobs/view/123456"
@@ -331,6 +362,34 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(result["email_alert_sources_checked"], 1)
         self.assertFalse(result["gmail_configured"])
         self.assertEqual(result["errors"], {})
+        for field in ["alert_emails_checked", "alert_jobs_inserted", "alert_duplicates_updated", "alert_parse_errors", "gmail_errors"]:
+            self.assertIn(field, result)
+
+    def test_hosted_refresh_summary_includes_gmail_fields(self):
+        result = {
+            "sources_checked": 1,
+            "jobs_collected": 1,
+            "new_jobs_inserted": 1,
+            "new_jobs_found": 1,
+            "duplicates_skipped": 0,
+            "duplicates_updated": 0,
+            "stale_jobs": 0,
+            "high_matches": 1,
+            "errors": {},
+            "daily_report_path": "x",
+            "email_alert_sources_checked": 2,
+            "alert_emails_checked": 3,
+            "alert_emails_parsed": 2,
+            "alert_jobs_inserted": 2,
+            "alert_duplicates_updated": 1,
+            "alert_parse_errors": 0,
+            "gmail_errors": [],
+            "gmail_configured": True,
+        }
+        with patch("backend.app.api.api_env", return_value="production"), patch("backend.app.api.admin_refresh_token", return_value="secret"), patch("backend.app.api.refresh_jobs", return_value=result):
+            row = admin_refresh_jobs("secret")
+        self.assertTrue(row["gmail_configured"])
+        self.assertEqual(row["alert_emails_checked"], 3)
 
     def test_no_linkedin_or_indeed_fetching_in_alert_parser(self):
         with patch("urllib.request.urlopen") as opener:

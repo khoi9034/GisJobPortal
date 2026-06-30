@@ -19,7 +19,7 @@ from .documents import (
     resume_summary,
     transcript_summary,
 )
-from .email_alerts import parse_alert_jobs
+from .email_alerts import gmail_configured, parse_alert_jobs
 from .materials import generate_materials
 from .paths import ROOT, admin_refresh_token, api_env, cors_origins, database_runtime_type, database_type, database_url_present, database_url_scheme, load_backend_env
 from .profile import load_profile
@@ -135,9 +135,12 @@ def refresh_summary(result: dict[str, Any]) -> dict[str, Any]:
         "source_errors": errors,
         "report_generated": bool(result.get("daily_report_path")),
         "email_alert_sources_checked": result.get("email_alert_sources_checked", 0),
+        "alert_emails_checked": result.get("alert_emails_checked", 0),
         "alert_emails_parsed": result.get("alert_emails_parsed", 0),
         "alert_jobs_inserted": result.get("alert_jobs_inserted", 0),
         "alert_duplicates_updated": result.get("alert_duplicates_updated", 0),
+        "alert_parse_errors": result.get("alert_parse_errors", 0),
+        "gmail_errors": [redact(message) for message in result.get("gmail_errors", [])],
         "gmail_configured": result.get("gmail_configured", False),
     }
 
@@ -426,13 +429,8 @@ def overview(include_sample: bool = False) -> dict[str, Any]:
 @app.get("/sources")
 def sources() -> list[dict[str, Any]]:
     load_backend_env()
-    gmail_token_path = os.getenv("GMAIL_TOKEN_PATH", "runtime/secrets/gmail_token.local.json")
-    gmail_configured = (
-        os.getenv("GMAIL_INGESTION_ENABLED", "false").lower() == "true"
-        and bool(os.getenv("GMAIL_CLIENT_ID", "").strip())
-        and bool(os.getenv("GMAIL_CLIENT_SECRET", "").strip())
-        and (ROOT / gmail_token_path).exists()
-    )
+    gmail_is_configured = gmail_configured()
+    gmail_enabled = os.getenv("GMAIL_INGESTION_ENABLED", "false").lower() == "true"
     configured = load_sources()
     try:
         saved = {source["name"]: source for source in db.list_sources()}
@@ -460,7 +458,8 @@ def sources() -> list[dict[str, Any]]:
         row.setdefault("validation_status", "disabled" if not row.get("enabled") else row.get("status", "unknown"))
         row["credentials_configured"] = not missing
         row["credential_missing"] = bool(missing)
-        row["gmail_configured"] = gmail_configured if row.get("coverage_tier") == "big_board_email_alert" else None
+        row["gmail_configured"] = gmail_is_configured if row.get("coverage_tier") == "big_board_email_alert" else None
+        row["gmail_ingestion_enabled"] = gmail_enabled if row.get("coverage_tier") == "big_board_email_alert" else None
         row["gmail_alert_query"] = os.getenv("GMAIL_ALERT_QUERY", "(from:linkedin.com OR from:indeed.com) newer_than:14d") if row.get("coverage_tier") == "big_board_email_alert" else ""
         row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0}))
         rows.append(row)

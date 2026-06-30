@@ -527,6 +527,22 @@ def refresh_jobs(
             {"name": source["name"], "collected": len(collected), "inserted": inserted, "duplicates": source_duplicates, "error": ""}
         )
 
+    from .email_alerts import ingest_gmail_alerts
+
+    gmail_result = ingest_gmail_alerts(db_path)
+    if gmail_result["gmail_configured"]:
+        email_alert_sources_checked += 2
+        alert_emails_parsed += int(gmail_result["alert_emails_parsed"])
+        alert_jobs_inserted += int(gmail_result["alert_jobs_inserted"])
+        alert_duplicates_updated += int(gmail_result["alert_duplicates_updated"])
+        new_jobs += alert_jobs_inserted
+        duplicates += alert_duplicates_updated
+        jobs_collected += alert_jobs_inserted + alert_duplicates_updated
+        jobs_scored += alert_jobs_inserted + alert_duplicates_updated
+        status = f"ok: {alert_jobs_inserted} new, {alert_duplicates_updated} duplicates"
+        for name in ("LinkedIn Job Alerts Email", "Indeed Job Alerts Email"):
+            db.mark_source_checked(name, status, db_path, jobs_found=alert_jobs_inserted + alert_duplicates_updated)
+
     include_sample = api_env() == "local"
     counts = db.freshness_counts(db_path, include_sample=include_sample)
     active_jobs = db.list_jobs(path=db_path, active_only=True, include_sample=include_sample)
@@ -548,10 +564,13 @@ def refresh_jobs(
         "errors": errors,
         "source_results": source_results,
         "email_alert_sources_checked": email_alert_sources_checked,
+        "alert_emails_checked": int(gmail_result.get("alert_emails_checked", 0)),
         "alert_emails_parsed": alert_emails_parsed,
         "alert_jobs_inserted": alert_jobs_inserted,
         "alert_duplicates_updated": alert_duplicates_updated,
-        "gmail_configured": os.getenv("GMAIL_INGESTION_ENABLED", "false").lower() == "true",
+        "alert_parse_errors": int(gmail_result.get("alert_parse_errors", 0)),
+        "gmail_errors": gmail_result.get("gmail_errors", []),
+        "gmail_configured": bool(gmail_result.get("gmail_configured")),
         **db.review_counts(db_path, include_sample=include_sample),
         **counts,
         **bands,
