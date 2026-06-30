@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -24,7 +24,7 @@ from backend.app.documents import (
     extract_transcript,
     should_use_transcript,
 )
-from backend.app.email_alerts import create_job_from_alert, dedupe_alert_jobs, ingest_gmail_alerts, load_gmail_token, parse_alert_jobs, parse_indeed_alert_text, parse_linkedin_alert_text
+from backend.app.email_alerts import create_job_from_alert, dedupe_alert_jobs, gmail_alert_query_profiles, ingest_gmail_alerts, load_gmail_token, parse_alert_jobs, parse_indeed_alert_text, parse_linkedin_alert_text
 from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
 from backend.app.paths import admin_refresh_token, api_env, cors_origins, database_path, database_runtime_type, database_type, database_url, database_url_scheme
@@ -186,7 +186,7 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(all(source["type"] in {"api", "rss", "greenhouse", "lever", "static_url", "manual", "linkedin_email_alert", "indeed_email_alert", "job_alert_email", "gmail_job_alerts"} for source in sources))
         broad = [source for source in sources if source.get("coverage_tier") == "broad_api"]
         self.assertGreaterEqual(len(broad), 4)
-        self.assertTrue(all(not source.get("enabled") for source in broad))
+        self.assertTrue(all(not source.get("enabled") or source["name"] == "Remotive APAC Remote" for source in broad))
         self.assertTrue(any(source.get("requires_api_key") for source in broad))
         self.assertTrue(any(source["name"] == "LinkedIn Job Alerts Email" and not source["enabled"] for source in sources))
         self.assertTrue(any(source["name"] == "Indeed Job Alerts Email" and not source["enabled"] for source in sources))
@@ -195,9 +195,13 @@ class MvpTests(unittest.TestCase):
         sources = load_sources()
         names = {source["name"]: source for source in sources}
         for name in ["JSearch SEA", "SerpApi Google Jobs SEA", "Adzuna International", "Remotive APAC Remote"]:
-            self.assertFalse(names[name]["enabled"])
             self.assertEqual(names[name]["coverage_tier"], "broad_api")
             self.assertIn(names[name]["region_scope"], {"southeast_asia", "international", "apac"})
+        self.assertTrue(names["Remotive APAC Remote"]["enabled"])
+        self.assertEqual(names["Remotive APAC Remote"]["min_score_by_source"], 55)
+        self.assertEqual(names["Remotive APAC Remote"]["max_jobs_per_source_per_refresh"], 25)
+        for name in ["JSearch SEA", "SerpApi Google Jobs SEA", "Adzuna International"]:
+            self.assertFalse(names[name]["enabled"])
         for name in ["JobStreet JobsDB Job Alerts Email", "Glints Job Alerts Email", "VietnamWorks Job Alerts Email", "TopCV Job Alerts Email"]:
             self.assertFalse(names[name]["enabled"])
             self.assertFalse(names[name]["scraping_supported"])
@@ -242,6 +246,19 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(jobs[0]["remote_status"], "remote")
         self.assertEqual(jobs[0]["original_source"], "Remotive")
         self.assertEqual(jobs[0]["source_posted_at"], "2026-06-02T00:00:00")
+
+    def test_fetch_json_sends_public_user_agent(self):
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def read(self): return b'{"ok": true}'
+        captured = {}
+        def fake_urlopen(req, timeout=0):
+            captured["headers"] = dict(req.header_items())
+            return FakeResponse()
+        with patch("backend.app.collectors.request.urlopen", side_effect=fake_urlopen):
+            self.assertEqual(collectors.fetch_json("https://remotive.com/api/remote-jobs")["ok"], True)
+        self.assertIn("User-Agent", {key.title(): value for key, value in captured["headers"].items()})
 
     def test_canonical_duplicate_detection_merges_api_duplicates(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,6 +318,19 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(jobs[1]["company"], "City of Concord")
         self.assertIn("indeed", jobs[1]["attribution_note"].lower())
 
+    def test_parse_sea_board_alert_text_with_multiple_jobs(self):
+        samples = {
+            "jobstreet": "GIS Analyst at Urban Data Lab, Singapore\nhttps://www.jobstreet.com/job/123\nQGIS Analyst - Planning Co - Kuala Lumpur\nhttps://www.jobsdb.com/job/456",
+            "glints": "Location Intelligence Analyst at Map Studio, Jakarta\nhttps://glints.com/opportunities/jobs/abc",
+            "vietnamworks": "ArcGIS Analyst at Planning Vietnam, Ho Chi Minh City\nhttps://www.vietnamworks.com/job/789",
+            "topcv": "QGIS Analyst at Spatial VN, Hanoi\nhttps://www.topcv.vn/viec-lam/101",
+        }
+        for hint, text in samples.items():
+            jobs = parse_alert_jobs(hint, text)
+            self.assertTrue(jobs, hint)
+            self.assertIn("job alert email", jobs[0]["attribution_note"].lower())
+            self.assertTrue(jobs[0]["apply_url"].startswith("https://"))
+
     def test_create_job_shell_from_alert_email(self):
         job = create_job_from_alert(
             {"title": "GIS Analyst", "company": "Example County", "location": "NC", "apply_url": "https://www.linkedin.com/jobs/view/1", "description": "ArcGIS"},
@@ -331,6 +361,7 @@ class MvpTests(unittest.TestCase):
     def test_setup_gmail_oauth_uses_readonly_scope(self):
         text = Path("scripts/setup_gmail_oauth.py").read_text(encoding="utf-8")
         self.assertIn("gmail.readonly", text)
+        self.assertIn("getpass", text)
         self.assertIn("runtime", str(setup_gmail_oauth.TOKEN_PATH))
         self.assertNotRegex(text, r"refresh_token['\"]?:\\s*['\"][A-Za-z0-9._-]{20,}")
 
@@ -338,7 +369,14 @@ class MvpTests(unittest.TestCase):
         combined = Path("scripts/setup_gmail_local_env.ps1").read_text(encoding="utf-8") + Path("scripts/sync_gmail_to_render.ps1").read_text(encoding="utf-8")
         self.assertIn("Read-Host", combined)
         self.assertIn("GMAIL_TOKEN_JSON_BASE64", combined)
+        self.assertIn("subject:(geospatial)", combined)
         self.assertNotRegex(combined, r"ya29\\.|1//[A-Za-z0-9_-]{20,}|GMAIL_CLIENT_SECRET\\s*=\\s*['\"][A-Za-z0-9_-]{20,}")
+
+    def test_gmail_alert_query_profiles_exist_for_sea_boards(self):
+        profiles = gmail_alert_query_profiles()
+        for name in ["linkedin_indeed_us", "linkedin_indeed_sea", "jobstreet_jobsdb", "glints", "vietnamworks_topcv"]:
+            self.assertIn(name, profiles)
+            self.assertIn("newer_than:14d", profiles[name])
 
     def test_hosted_gmail_token_base64_decodes_without_printing_secret(self):
         token = {"refresh_token": "refresh-token-secret", "access_token": "access-token-secret"}
@@ -487,6 +525,19 @@ class MvpTests(unittest.TestCase):
             jobs = collectors.collect_from_source(source)
         self.assertEqual(jobs, [])
         opener.assert_not_called()
+
+    def test_source_quality_report_runs_without_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False):
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "source": "Remotive APAC Remote", "source_url": "https://example.com/remotive-quality", "match_score": 60}, path)
+            original_list_jobs = db.list_jobs
+            with patch("scripts.analyze_source_quality.db.list_jobs", side_effect=lambda include_sample=False: original_list_jobs(path=path, include_sample=include_sample)), patch("scripts.analyze_source_quality.db.list_sources", return_value=[{"name": "Remotive APAC Remote", "last_status": "ok: 0 new, 1 duplicates", "errors_last_run": ""}]):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(analyze_source_quality.main(), 0)
+        text = output.getvalue()
+        self.assertIn("Remotive APAC Remote", text)
+        self.assertNotIn("do-not-print-me", text)
 
     def test_greenhouse_collector_normalizes_mock_response(self):
         source = {

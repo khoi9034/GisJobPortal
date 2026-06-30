@@ -39,7 +39,11 @@ function Invoke-RenderApi($Method, $Path, $Body = $null) {
 }
 
 function Set-RenderEnv($Name, $Value) {
-  Invoke-RenderApi "Put" "/services/$ServiceId/env-vars/$([uri]::EscapeDataString($Name))" @{ value = $Value } | Out-Null
+  try {
+    Invoke-RenderApi "Put" "/services/$ServiceId/env-vars/$([uri]::EscapeDataString($Name))" @{ value = $Value } | Out-Null
+  } catch {
+    Invoke-RenderApi "Post" "/services/$ServiceId/env-vars" @{ key = $Name; value = $Value } | Out-Null
+  }
   Write-Host "- ${Name}: updated"
 }
 
@@ -59,7 +63,7 @@ if (-not (Test-Path $TokenPath)) {
 }
 
 $TokenBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($TokenPath))
-$Query = '(from:linkedin.com OR from:indeed.com OR subject:("job alert")) newer_than:14d'
+$Query = '(from:linkedin.com OR from:indeed.com OR subject:("job alert") OR subject:(GIS) OR subject:(geospatial)) newer_than:14d'
 
 try {
   Write-Host "Syncing Gmail env vars to Render service $ServiceId..."

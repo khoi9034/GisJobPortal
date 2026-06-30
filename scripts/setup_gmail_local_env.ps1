@@ -42,7 +42,7 @@ $Lines = Set-EnvLine $Lines "GMAIL_INGESTION_ENABLED" "true"
 $Lines = Set-EnvLine $Lines "GMAIL_CLIENT_ID" $ClientId
 $Lines = Set-EnvLine $Lines "GMAIL_CLIENT_SECRET" $ClientSecret
 $Lines = Set-EnvLine $Lines "GMAIL_TOKEN_PATH" "runtime/secrets/gmail_token.local.json"
-$Lines = Set-EnvLine $Lines "GMAIL_ALERT_QUERY" '(from:linkedin.com OR from:indeed.com OR subject:("job alert")) newer_than:14d'
+$Lines = Set-EnvLine $Lines "GMAIL_ALERT_QUERY" '(from:linkedin.com OR from:indeed.com OR subject:("job alert") OR subject:(GIS) OR subject:(geospatial)) newer_than:14d'
 Set-Content -Path $EnvPath -Encoding utf8 -Value $Lines
 
 Write-Host "Gmail local env saved to ignored backend/.env."

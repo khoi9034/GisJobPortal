@@ -20,6 +20,25 @@ LINK_RE = re.compile(r"https?://[^\s<>\")]+", re.I)
 JOB_ID_RE = re.compile(r"(?:currentJobId|jk|jobId|job_id|jobs/view|view/)(?:=|/)([A-Za-z0-9_-]+)", re.I)
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
+DEFAULT_ALERT_QUERY = '(from:linkedin.com OR from:indeed.com OR subject:("job alert") OR subject:(GIS) OR subject:(geospatial)) newer_than:14d'
+
+ALERT_PROVIDERS = {
+    "linkedin": ("LinkedIn Job Alerts Email", "linkedin_email_alert", "gmail://job-alerts/linkedin"),
+    "indeed": ("Indeed Job Alerts Email", "indeed_email_alert", "gmail://job-alerts/indeed"),
+    "jobstreet": ("JobStreet JobsDB Job Alerts Email", "gmail_job_alerts", "gmail://job-alerts/jobstreet-jobsdb"),
+    "jobsdb": ("JobStreet JobsDB Job Alerts Email", "gmail_job_alerts", "gmail://job-alerts/jobstreet-jobsdb"),
+    "glints": ("Glints Job Alerts Email", "gmail_job_alerts", "gmail://job-alerts/glints"),
+    "vietnamworks": ("VietnamWorks Job Alerts Email", "gmail_job_alerts", "gmail://job-alerts/vietnamworks"),
+    "topcv": ("TopCV Job Alerts Email", "gmail_job_alerts", "gmail://job-alerts/topcv"),
+}
+
+ALERT_QUERY_PROFILES = {
+    "linkedin_indeed_us": '(from:linkedin.com OR from:indeed.com) (GIS OR geospatial OR "spatial analyst") newer_than:14d',
+    "linkedin_indeed_sea": '(from:linkedin.com OR from:indeed.com) (Vietnam OR Singapore OR Malaysia OR Thailand OR Indonesia OR Philippines OR APAC) (GIS OR geospatial) newer_than:14d',
+    "jobstreet_jobsdb": '(from:jobstreet.com OR from:jobsdb.com OR subject:(JobStreet) OR subject:(JobsDB)) (GIS OR geospatial OR "urban planning") newer_than:14d',
+    "glints": '(from:glints.com OR subject:(Glints)) (GIS OR geospatial OR "data analyst" OR planning) newer_than:14d',
+    "vietnamworks_topcv": '(from:vietnamworks.com OR from:topcv.vn OR subject:(VietnamWorks) OR subject:(TopCV)) (GIS OR QGIS OR ArcGIS OR "urban planning") newer_than:14d',
+}
 
 
 def extract_job_links(text: str) -> list[str]:
@@ -27,18 +46,24 @@ def extract_job_links(text: str) -> list[str]:
     for raw in LINK_RE.findall(text or ""):
         link = raw.rstrip(".,;]")
         parts = urlsplit(link)
-        if parts.netloc.endswith("linkedin.com") or "indeed." in parts.netloc:
+        if provider_from_text(parts.netloc) or any(key in parse_qs(parts.query) for key in ("url", "u")):
             qs = parse_qs(parts.query)
             links.append(unquote((qs.get("url") or qs.get("u") or [link])[0]))
     return list(dict.fromkeys(links))
 
 
+def provider_from_text(text: str) -> str:
+    lowered = text.lower()
+    return next((provider for provider in ALERT_PROVIDERS if provider in lowered), "")
+
+
 def _source_from_hint(source_hint: str) -> dict[str, str]:
-    is_indeed = source_hint.lower().startswith("indeed")
+    provider = provider_from_text(source_hint) or "linkedin"
+    name, source_type, url = ALERT_PROVIDERS[provider]
     return {
-        "name": "Indeed Job Alerts Email" if is_indeed else "LinkedIn Job Alerts Email",
-        "type": "indeed_email_alert" if is_indeed else "linkedin_email_alert",
-        "url": "gmail://job-alerts/indeed" if is_indeed else "gmail://job-alerts/linkedin",
+        "name": name,
+        "type": source_type,
+        "url": url,
     }
 
 
@@ -86,9 +111,33 @@ def parse_indeed_alert_text(text: str) -> list[dict[str, Any]]:
     return _parse_blocks(text, "indeed")
 
 
+def parse_jobstreet_alert_text(text: str) -> list[dict[str, Any]]:
+    return _parse_blocks(text, "jobstreet")
+
+
+def parse_glints_alert_text(text: str) -> list[dict[str, Any]]:
+    return _parse_blocks(text, "glints")
+
+
+def parse_vietnamworks_alert_text(text: str) -> list[dict[str, Any]]:
+    return _parse_blocks(text, "vietnamworks")
+
+
+def parse_topcv_alert_text(text: str) -> list[dict[str, Any]]:
+    return _parse_blocks(text, "topcv")
+
+
 def normalize_alert_email(source_hint: str, raw_email_text: str, message_id: str = "") -> list[dict[str, Any]]:
-    provider = "indeed" if source_hint.lower().startswith("indeed") else "linkedin"
-    rows = parse_indeed_alert_text(raw_email_text) if provider == "indeed" else parse_linkedin_alert_text(raw_email_text)
+    provider = provider_from_text(source_hint) or "linkedin"
+    parser = {
+        "indeed": parse_indeed_alert_text,
+        "jobstreet": parse_jobstreet_alert_text,
+        "jobsdb": parse_jobstreet_alert_text,
+        "glints": parse_glints_alert_text,
+        "vietnamworks": parse_vietnamworks_alert_text,
+        "topcv": parse_topcv_alert_text,
+    }.get(provider, parse_linkedin_alert_text)
+    rows = parser(raw_email_text)
     if message_id:
         for row in rows:
             row["external_id"] = row.get("external_id") or message_id
@@ -129,8 +178,12 @@ def gmail_config() -> dict[str, str]:
         "client_secret": os.getenv("GMAIL_CLIENT_SECRET", ""),
         "token_path": os.getenv("GMAIL_TOKEN_PATH", "runtime/secrets/gmail_token.local.json"),
         "token_json_base64": os.getenv("GMAIL_TOKEN_JSON_BASE64", ""),
-        "query": os.getenv("GMAIL_ALERT_QUERY", '(from:linkedin.com OR from:indeed.com OR subject:("job alert")) newer_than:14d'),
+        "query": os.getenv("GMAIL_ALERT_QUERY", DEFAULT_ALERT_QUERY),
     }
+
+
+def gmail_alert_query_profiles() -> dict[str, str]:
+    return ALERT_QUERY_PROFILES.copy()
 
 
 def _usable_secret(value: str) -> bool:
@@ -233,7 +286,7 @@ def gmail_message_text(message: dict[str, Any]) -> str:
 def source_hint_from_message(message: dict[str, Any], text: str) -> str:
     headers = {header.get("name", "").lower(): header.get("value", "") for header in (message.get("payload") or {}).get("headers", [])}
     combined = f"{headers.get('from', '')} {headers.get('subject', '')} {text}".lower()
-    return "indeed" if "indeed" in combined else "linkedin"
+    return provider_from_text(combined) or "linkedin"
 
 
 def gmail_fetch_alert_texts(config: dict[str, str] | None = None, max_results: int = 25) -> list[dict[str, str]]:

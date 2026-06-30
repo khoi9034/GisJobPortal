@@ -27,6 +27,8 @@ Broad APIs are disabled by default because they need API keys and can return noi
 
 SEA email-alert sources are also disabled by default. Create the alerts manually on the job board, authorize Gmail ingestion locally/hosted, then let the portal parse alert emails. This avoids direct scraping while still expanding coverage.
 
+Remotive APAC Remote is the first no-key test source. It uses the public Remotive API with conservative GIS/spatial title/content filters and a score floor. If `scripts/analyze_source_quality.py` shows low-fit noise, disable it again in `config/sources.yaml`.
+
 Recommended alerts to create manually:
 
 - LinkedIn: GIS Analyst Vietnam, Geospatial Analyst Singapore, Urban Planning Analyst Southeast Asia, Remote Sensing Analyst APAC
@@ -34,6 +36,17 @@ Recommended alerts to create manually:
 - JobStreet/JobsDB: GIS, geospatial, urban planning, transport planning
 - Glints: GIS, data analyst, urban planning, location intelligence
 - VietnamWorks/TopCV: GIS, QGIS, ArcGIS, urban planning, data analyst
+
+Setup:
+
+```powershell
+.\scripts\setup_gmail_local_env.ps1
+python scripts\setup_gmail_oauth.py
+.\scripts\sync_gmail_to_render.ps1
+python scripts\admin_refresh_hosted.py --url https://gisjobportal.onrender.com
+```
+
+Then open Daily Review and Apply Today. Alert jobs should show their email-alert source and still require manual review before applying.
 
 ## Quality Controls
 

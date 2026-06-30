@@ -30,7 +30,7 @@ def import_text(source_hint: str, raw_text: str, db_path: Path | str = db.DB_PAT
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ingest authorized Gmail job alert emails.")
-    parser.add_argument("--source-hint", choices=["linkedin", "indeed"], default="")
+    parser.add_argument("--source-hint", choices=["linkedin", "indeed", "jobstreet", "jobsdb", "glints", "vietnamworks", "topcv"], default="")
     parser.add_argument("--text-file", default="")
     args = parser.parse_args(argv)
 

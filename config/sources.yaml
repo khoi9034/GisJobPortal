@@ -354,7 +354,7 @@ sources:
     type: api
     provider: remotive
     url: https://remotive.com/api/remote-jobs
-    enabled: false
+    enabled: true
     coverage_tier: broad_api
     region_scope: apac
     international_region: Southeast Asia
@@ -365,17 +365,23 @@ sources:
       - Geospatial
       - Spatial Analyst
       - Remote Sensing
+      - Mapping
       - Location Intelligence
       - QGIS
       - ArcGIS
+      - Urban Planning
+      - Transportation Planning
+      - Data Analyst GIS
     locations:
       - Remote APAC
-    title_keywords: [GIS, Geospatial, Spatial, Remote Sensing, Location Intelligence, ArcGIS, QGIS]
+    title_keywords: [GIS, Geospatial, Spatial, Remote Sensing, Mapping, Location Intelligence, ArcGIS, QGIS, Urban Planning, Transportation Planning, Data Analyst]
+    include_keyword_fields: [title, description, requirements]
+    include_keywords: [GIS, geospatial, spatial, remote sensing, mapping, ArcGIS, QGIS, urban planning, transportation planning, location intelligence]
     exclude_title_keywords: [Software Engineer, Sales, Marketing, Customer Support]
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
-    min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 40
+    min_score_by_source: 55
+    max_jobs_per_source_per_refresh: 25
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -384,7 +390,7 @@ sources:
     dedupe_priority: 35
     quality_score: 45
     terms_notes: Public Remotive API only; no scraping.
-    notes: Disabled APAC remote source; enable only after confirming useful GIS/geospatial signal.
+    notes: Enabled no-key APAC remote test source with conservative GIS/spatial filters; disable if quality report shows noise.
   - name: LinkedIn Job Alerts Email
     type: linkedin_email_alert
     url: gmail://job-alerts/linkedin

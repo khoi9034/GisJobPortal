@@ -263,6 +263,9 @@ export default function DashboardPage({ view }: { view: View }) {
   const visibleJobs = useMemo(() => filterJobs(jobs, view, freshness), [jobs, view, freshness]);
   const reviewQueue = useMemo(() => buildReviewQueue(jobs, reviewFilters.includeStale), [jobs, reviewFilters.includeStale]);
   const sourceCounts = useMemo(() => sourceSummary(sources), [sources]);
+  const emailAlertSources = sources.filter((source) => source.coverage_tier === "big_board_email_alert");
+  const remotiveApac = sources.find((source) => source.name === "Remotive APAC Remote");
+  const latestAlertSource = emailAlertSources.find((source) => source.last_checked_at || source.last_checked || source.jobs_total || source.last_error || source.errors_last_run);
 
   async function refreshJobs() {
     const result = await api<Record<string, number>>("/jobs/refresh", { method: "POST" });
@@ -445,12 +448,18 @@ export default function DashboardPage({ view }: { view: View }) {
           </section>
           <section className="settings-section">
             <h3>Job Alert Ingestion</h3>
-            <p className="muted">LinkedIn/Indeed coverage comes from authorized Gmail job-alert emails. The portal does not scrape those sites, log in, or auto-apply.</p>
-            <p className="muted">Gmail ingestion: {sources.some((source) => source.coverage_tier === "big_board_email_alert" && source.gmail_ingestion_enabled) ? "enabled" : "disabled"} | Gmail setup: {sources.some((source) => source.coverage_tier === "big_board_email_alert" && source.gmail_configured) ? "configured" : "not configured"} | Imported alert jobs: {sources.filter((source) => source.coverage_tier === "big_board_email_alert").reduce((sum, source) => sum + (source.jobs_total || 0), 0)} | Pasted import is local/admin-only.</p>
+            <p className="muted">LinkedIn, Indeed, JobStreet, Glints, VietnamWorks, and TopCV coverage comes from authorized Gmail job-alert emails. No scraping, no login automation, no auto-apply.</p>
+            <p className="muted">Gmail ingestion: {emailAlertSources.some((source) => source.gmail_ingestion_enabled) ? "enabled" : "disabled"} | Gmail setup: {emailAlertSources.some((source) => source.gmail_configured) ? "configured" : "not configured"} | Query: {emailAlertSources.find((source) => source.gmail_alert_query)?.gmail_alert_query || "not set"} | Imported alert jobs: {emailAlertSources.reduce((sum, source) => sum + (source.jobs_total || 0), 0)}</p>
+            <p className="muted">Last alert status: {latestAlertSource ? `${latestAlertSource.name} checked ${latestAlertSource.last_checked_at || latestAlertSource.last_checked || "recently"}; jobs ${latestAlertSource.jobs_total || 0}; errors ${latestAlertSource.last_error || latestAlertSource.errors_last_run || 0}` : "no alert ingestion run yet"} | Remotive APAC: {remotiveApac?.enabled ? "enabled" : "disabled"} / {remotiveApac?.last_error || remotiveApac?.errors_last_run || "no errors"}</p>
+            <div className="chips">{emailAlertSources.map((source) => <span className={source.enabled ? "chip green" : "chip"} key={source.name}>{source.name}: {source.enabled ? "enabled" : "disabled"}</span>)}</div>
             <label className="muted" htmlFor="alert-source">Source</label>
             <select id="alert-source" value={alertSource} onChange={(event) => setAlertSource(event.target.value)}>
               <option value="linkedin">LinkedIn</option>
               <option value="indeed">Indeed</option>
+              <option value="jobstreet">JobStreet / JobsDB</option>
+              <option value="glints">Glints</option>
+              <option value="vietnamworks">VietnamWorks</option>
+              <option value="topcv">TopCV</option>
             </select>
             <textarea value={alertText} onChange={(event) => setAlertText(event.target.value)} placeholder="Paste a full job alert email here to test parsing." rows={7} />
             <button className="button" onClick={importAlertText} disabled={!alertText.trim()}>Import Pasted Alert Text</button>

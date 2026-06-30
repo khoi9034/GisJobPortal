@@ -149,7 +149,8 @@ def fetch_usajobs(term: str, source: dict[str, Any], location: str = "") -> dict
 
 def fetch_json(url: str) -> Any:
     try:
-        with request.urlopen(url, timeout=20) as response:
+        req = request.Request(url, headers={"User-Agent": "GisJobPortal/1.0 (+https://gis-job-portal.vercel.app)", "Accept": "application/json"})
+        with request.urlopen(req, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
     except error.URLError as exc:
         raise RuntimeError(f"request failed: {getattr(exc, 'reason', exc)}") from exc
@@ -157,7 +158,7 @@ def fetch_json(url: str) -> Any:
 
 def fetch_json_request(url: str, headers: dict[str, str] | None = None) -> Any:
     try:
-        req = request.Request(url, headers=headers or {})
+        req = request.Request(url, headers={"User-Agent": "GisJobPortal/1.0 (+https://gis-job-portal.vercel.app)", "Accept": "application/json", **(headers or {})})
         with request.urlopen(req, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
     except error.URLError as exc:
@@ -538,7 +539,8 @@ def refresh_jobs(
 
     gmail_result = ingest_gmail_alerts(db_path)
     if gmail_result["gmail_configured"]:
-        email_alert_sources_checked += 2
+        gmail_source_names = [source["name"] for source in sources if source.get("coverage_tier") == "big_board_email_alert"]
+        email_alert_sources_checked += len(gmail_source_names)
         alert_emails_parsed += int(gmail_result["alert_emails_parsed"])
         alert_jobs_inserted += int(gmail_result["alert_jobs_inserted"])
         alert_duplicates_updated += int(gmail_result["alert_duplicates_updated"])
@@ -547,8 +549,9 @@ def refresh_jobs(
         jobs_collected += alert_jobs_inserted + alert_duplicates_updated
         jobs_scored += alert_jobs_inserted + alert_duplicates_updated
         status = f"ok: {alert_jobs_inserted} new, {alert_duplicates_updated} duplicates"
-        for name in ("LinkedIn Job Alerts Email", "Indeed Job Alerts Email"):
-            db.mark_source_checked(name, status, db_path, jobs_found=alert_jobs_inserted + alert_duplicates_updated)
+        error = "; ".join(gmail_result.get("gmail_errors", []))
+        for name in gmail_source_names:
+            db.mark_source_checked(name, status if not error else f"error: {error}", db_path, jobs_found=alert_jobs_inserted + alert_duplicates_updated, error=error)
 
     include_sample = api_env() == "local"
     counts = db.freshness_counts(db_path, include_sample=include_sample)

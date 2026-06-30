@@ -19,7 +19,7 @@ from .documents import (
     resume_summary,
     transcript_summary,
 )
-from .email_alerts import gmail_configured, parse_alert_jobs
+from .email_alerts import DEFAULT_ALERT_QUERY, gmail_configured, parse_alert_jobs
 from .materials import generate_materials
 from .paths import ROOT, admin_refresh_token, api_env, cors_origins, database_runtime_type, database_type, database_url_present, database_url_scheme, load_backend_env
 from .profile import load_profile
@@ -465,7 +465,7 @@ def sources() -> list[dict[str, Any]]:
         row["credential_missing"] = bool(missing)
         row["gmail_configured"] = gmail_is_configured if row.get("coverage_tier") == "big_board_email_alert" else None
         row["gmail_ingestion_enabled"] = gmail_enabled if row.get("coverage_tier") == "big_board_email_alert" else None
-        row["gmail_alert_query"] = os.getenv("GMAIL_ALERT_QUERY", "(from:linkedin.com OR from:indeed.com) newer_than:14d") if row.get("coverage_tier") == "big_board_email_alert" else ""
+        row["gmail_alert_query"] = os.getenv("GMAIL_ALERT_QUERY", DEFAULT_ALERT_QUERY) if row.get("coverage_tier") == "big_board_email_alert" else ""
         row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0, "strong_matches_by_region": {"southeast_asia": 0}}))
         rows.append(row)
     return rows
