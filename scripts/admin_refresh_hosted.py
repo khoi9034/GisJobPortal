@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         result = admin_refresh(args.url, token)
     except error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        print(f"refresh failed: HTTP {exc.code} {body}")
+        print(f"refresh failed: HTTP {exc.code} {body[:500]}")
         return 1
     finally:
         token = ""

@@ -260,16 +260,21 @@ def collect_jsearch(source: dict[str, Any]) -> list[dict[str, Any]]:
         raise RuntimeError("JSearch credentials missing; set RAPIDAPI_KEY in backend/.env")
     jobs: list[dict[str, Any]] = []
     limit = int(source.get("max_jobs_per_source_per_refresh") or 0)
+    request_limit = int(source.get("max_api_requests_per_refresh") or 0)
+    requests_made = 0
     host = "jsearch.p.rapidapi.com"
     for term in search_terms(source):
         query = term
         locations = source_locations(source)
         for location in locations:
+            if request_limit > 0 and requests_made >= request_limit:
+                return jobs[:limit] if limit > 0 else jobs
             params = {"query": f"{query} {location}".strip(), "page": "1", "num_pages": "1", "date_posted": "month"}
             data = fetch_json_request(
                 f"{source['url']}?{parse.urlencode(params)}",
                 {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": host},
             )
+            requests_made += 1
             for item in data.get("data", []):
                 place = ", ".join(filter(None, [item.get("job_city"), item.get("job_state"), item.get("job_country")]))
                 apply_options = item.get("apply_options") if isinstance(item.get("apply_options"), list) else []
