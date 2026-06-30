@@ -124,7 +124,7 @@ sources:
       - Manager
       - Director
     min_score_by_source: 40
-    max_jobs_per_source_per_refresh: 60
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -152,7 +152,7 @@ sources:
     exclude_title_keywords: [Software Engineer, Sales, Marketing, Customer Support]
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     min_score_by_source: 45
-    max_jobs_per_source_per_refresh: 40
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -181,7 +181,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 40
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -309,7 +309,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 70
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -341,7 +341,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 30
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -373,7 +373,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 30
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -405,7 +405,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 40
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -434,7 +434,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 40
+    max_jobs_per_source_per_refresh: 15
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false

@@ -186,7 +186,7 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(all(source["type"] in {"api", "jsearch", "rss", "greenhouse", "lever", "static_url", "manual", "linkedin_email_alert", "indeed_email_alert", "job_alert_email", "gmail_job_alerts"} for source in sources))
         broad = [source for source in sources if source.get("coverage_tier") == "broad_api"]
         self.assertGreaterEqual(len(broad), 4)
-        self.assertTrue(all(not source.get("enabled") or source["name"] == "Remotive APAC Remote" for source in broad))
+        self.assertTrue(all(not source.get("enabled") or source["type"] == "jsearch" or source["name"] == "Remotive APAC Remote" for source in broad))
         self.assertTrue(any(source.get("requires_api_key") for source in broad))
         self.assertTrue(any(source["name"] == "LinkedIn Job Alerts Email" and not source["enabled"] for source in sources))
         self.assertTrue(any(source["name"] == "Indeed Job Alerts Email" and not source["enabled"] for source in sources))
@@ -200,7 +200,8 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(names["Remotive APAC Remote"]["enabled"])
         self.assertEqual(names["Remotive APAC Remote"]["min_score_by_source"], 55)
         self.assertEqual(names["Remotive APAC Remote"]["max_jobs_per_source_per_refresh"], 25)
-        for name in ["JSearch Southeast Asia GIS", "SerpApi Google Jobs SEA", "Adzuna International"]:
+        self.assertTrue(names["JSearch Southeast Asia GIS"]["enabled"])
+        for name in ["SerpApi Google Jobs SEA", "Adzuna International"]:
             self.assertFalse(names[name]["enabled"])
         for name in ["JobStreet JobsDB Job Alerts Email", "Glints Job Alerts Email", "VietnamWorks Job Alerts Email", "TopCV Job Alerts Email"]:
             self.assertFalse(names[name]["enabled"])
@@ -210,7 +211,7 @@ class MvpTests(unittest.TestCase):
             self.assertFalse(names[name]["enabled"])
             self.assertEqual(names[name]["coverage_tier"], "unsupported")
 
-    def test_jsearch_source_profiles_are_disabled_and_keyed(self):
+    def test_jsearch_source_profiles_are_enabled_capped_and_keyed(self):
         names = {source["name"]: source for source in load_sources()}
         for name in [
             "JSearch GIS US",
@@ -223,9 +224,10 @@ class MvpTests(unittest.TestCase):
             "JSearch Location Intelligence",
         ]:
             self.assertEqual(names[name]["type"], "jsearch")
-            self.assertFalse(names[name]["enabled"])
+            self.assertTrue(names[name]["enabled"])
             self.assertTrue(names[name]["requires_api_key"])
             self.assertEqual(names[name]["env_key"], "RAPIDAPI_KEY")
+            self.assertLessEqual(names[name]["max_jobs_per_source_per_refresh"], 15)
 
     def test_enabled_sea_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -312,6 +314,26 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(jobs[1]["apply_url"], "")
         self.assertEqual(jobs[1]["link_status"], "source_only")
         self.assertEqual(jobs[2]["link_status"], "missing")
+
+    def test_jsearch_respects_source_refresh_cap_before_more_api_calls(self):
+        source = {
+            "name": "JSearch GIS US",
+            "type": "jsearch",
+            "url": "https://jsearch.p.rapidapi.com/search",
+            "enabled": True,
+            "search_terms": ["GIS Analyst", "Geospatial Analyst"],
+            "locations": ["North Carolina", "Remote"],
+            "max_jobs_per_source_per_refresh": 2,
+        }
+        data = {"data": [
+            {"job_id": "js-a", "job_title": "GIS Analyst", "employer_name": "County", "job_location": "NC"},
+            {"job_id": "js-b", "job_title": "GIS Technician", "employer_name": "City", "job_location": "NC"},
+            {"job_id": "js-c", "job_title": "Spatial Analyst", "employer_name": "Firm", "job_location": "NC"},
+        ]}
+        with patch.dict(os.environ, {"RAPIDAPI_KEY": "new-rotated-key"}, clear=False), patch("backend.app.collectors.load_backend_env"), patch("backend.app.collectors.fetch_json_request", return_value=data) as fetch:
+            jobs = collectors.collect_jsearch(source)
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(fetch.call_count, 1)
 
     def test_remotive_collector_normalizes_mock_response(self):
         source = {"name": "Remotive Remote Jobs", "type": "api", "provider": "remotive", "url": "https://remotive.com/api/remote-jobs", "enabled": True, "search_terms": ["GIS"]}

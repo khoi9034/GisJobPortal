@@ -259,6 +259,7 @@ def collect_jsearch(source: dict[str, Any]) -> list[dict[str, Any]]:
     if not api_key:
         raise RuntimeError("JSearch credentials missing; set RAPIDAPI_KEY in backend/.env")
     jobs: list[dict[str, Any]] = []
+    limit = int(source.get("max_jobs_per_source_per_refresh") or 0)
     host = "jsearch.p.rapidapi.com"
     for term in search_terms(source):
         query = term
@@ -330,6 +331,9 @@ def collect_jsearch(source: dict[str, Any]) -> list[dict[str, Any]]:
                         source,
                     )
                 )
+                # ponytail: cap API fanout here; add per-query quotas only if JSearch quality needs it.
+                if limit > 0 and len(jobs) >= limit:
+                    return jobs[:limit]
     return jobs
 
 
