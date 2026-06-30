@@ -15,7 +15,7 @@ from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, deployment_status, health, latest_report as latest_report_endpoint, refresh as refresh_endpoint, sources as sources_endpoint, validate_source_config
+from backend.app.api import admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, deployment_status, health, jobs as jobs_endpoint, latest_report as latest_report_endpoint, overview as overview_endpoint, refresh as refresh_endpoint, review_queue as review_queue_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -735,6 +735,53 @@ class MvpTests(unittest.TestCase):
             visible = db.review_queue(path, include_stale=True)
         self.assertNotIn(job_id, {job["id"] for job in hidden["needs_review"]})
         self.assertIn(job_id, {job["id"] for job in visible["needs_review"]})
+
+    def test_production_live_views_exclude_sample_jobs_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "source": "USAJobs API", "source_url": "https://example.com/real-live", "match_score": 60, "date_posted": db.now_iso()}, path)
+            db.insert_job({**self.job, "source": db.SAMPLE_JOB_SOURCE, "source_url": "https://example.com/sample-live", "match_score": 95, "status": "ready_to_apply", "date_posted": db.now_iso()}, path)
+            original_list_jobs = db.list_jobs
+
+            def temp_list_jobs(status=None, path_arg=None, active_only=False, include_sample=True, **_kwargs):
+                return original_list_jobs(status=status, path=path_arg or path, active_only=active_only, include_sample=include_sample)
+
+            with patch("backend.app.api.ensure_seeded"), patch("backend.app.api.api_env", return_value="production"), patch("backend.app.api.db.list_jobs", side_effect=temp_list_jobs):
+                rows = jobs_endpoint()
+                rows_with_sample = jobs_endpoint(include_sample=True)
+                stats = overview_endpoint()
+                queue = review_queue_endpoint()
+                board = application_board_endpoint()
+
+        self.assertEqual([job["source"] for job in rows], ["USAJobs API"])
+        self.assertEqual({job["source"] for job in rows_with_sample}, {"USAJobs API", db.SAMPLE_JOB_SOURCE})
+        self.assertEqual(stats["total"], 1)
+        self.assertEqual(stats["high_matches"], 0)
+        self.assertNotIn(db.SAMPLE_JOB_SOURCE, {job["source"] for group in queue.values() for job in group})
+        self.assertFalse(board["ready_to_apply"])
+
+    def test_local_api_includes_sample_jobs_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "source": "USAJobs API", "source_url": "https://example.com/local-real"}, path)
+            db.insert_job({**self.job, "source": db.SAMPLE_JOB_SOURCE, "source_url": "https://example.com/local-sample"}, path)
+            original_list_jobs = db.list_jobs
+
+            def temp_list_jobs(status=None, path_arg=None, active_only=False, include_sample=True, **_kwargs):
+                return original_list_jobs(status=status, path=path_arg or path, active_only=active_only, include_sample=include_sample)
+
+            with patch("backend.app.api.ensure_seeded"), patch("backend.app.api.api_env", return_value="local"), patch("backend.app.api.db.list_jobs", side_effect=temp_list_jobs):
+                rows = jobs_endpoint()
+
+        self.assertEqual({job["source"] for job in rows}, {"USAJobs API", db.SAMPLE_JOB_SOURCE})
+
+    def test_demo_mode_and_sample_badge_still_exist(self):
+        api_text = Path("frontend/lib/api.ts").read_text(encoding="utf-8")
+        dashboard_text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
+        detail_text = Path("frontend/components/JobDetail.tsx").read_text(encoding="utf-8")
+        self.assertIn('if (API_MODE === "demo") return demoApi', api_text)
+        self.assertIn("Demo sample job — not a live posting", dashboard_text)
+        self.assertIn("Demo sample job — not a live posting", detail_text)
 
     def test_review_update_does_not_change_application_status(self):
         with tempfile.TemporaryDirectory() as tmp:

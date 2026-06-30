@@ -65,6 +65,7 @@ const FRESH_DAYS = 14;
 const LAST_30_DAYS = 30;
 const HIDE_AFTER_DAYS = 45;
 const CLOSING_SOON_DAYS = 7;
+const SAMPLE_JOB_SOURCE = "Sample GIS Jobs";
 
 function parseDate(value?: string) {
   return value ? new Date(`${value.slice(0, 10)}T00:00:00`) : null;
@@ -92,6 +93,14 @@ function scoreBand(job: Job) {
   if (job.match_score >= 55) return "possible fit";
   if (job.match_score >= 40) return "weak/maybe";
   return "low fit";
+}
+
+function isSampleJob(job: Job) {
+  return job.source === SAMPLE_JOB_SOURCE;
+}
+
+function SampleJobBadge({ job }: { job: Job }) {
+  return isSampleJob(job) ? <span className="chip warning">Demo sample job — not a live posting</span> : null;
 }
 
 function sourceConfidence(job: Job) {
@@ -556,6 +565,7 @@ function ApplicationJobCard({
         <span className="chip green">{job.outcome_status || "not_started"}</span>
         <span className="chip">{job.status}</span>
         <span className="chip">{scoreBand(job)}</span>
+        <SampleJobBadge job={job} />
       </div>
       <div className="actions">
         <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
@@ -698,6 +708,7 @@ function ReviewJobCard({
         <span className="chip green">{job.review_status || "unreviewed"}</span>
         <span className="chip green">{scoreBand(job)}</span>
         <span className="chip">{job.priority_bucket || "medium"}</span>
+        <SampleJobBadge job={job} />
         <FreshnessChips job={job} />
         {job.fit_reasons?.[0] && <span className="chip">{job.fit_reasons[0]}</span>}
       </div>
@@ -791,6 +802,7 @@ function JobCard({
       <div className="chips">
         <span className="chip green">{job.status}</span>
         <span className="chip green">{scoreBand(job)}</span>
+        <SampleJobBadge job={job} />
         <FreshnessChips job={job} />
         {(job.fit_reasons || []).slice(0, 3).map((reason) => <span className="chip" key={reason}>{reason}</span>)}
         {(job.missing_skills || []).slice(0, 3).map((skill) => <span className="chip red" key={skill}>{skill}</span>)}

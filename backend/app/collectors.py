@@ -10,7 +10,7 @@ from urllib import error, parse, request
 
 from . import db
 from .freshness import apply_freshness
-from .paths import ROOT, SAMPLE_JOBS_PATH, load_backend_env
+from .paths import ROOT, SAMPLE_JOBS_PATH, api_env, load_backend_env
 from .profile import load_profile
 from .reports import summary_counts, write_daily_report
 from .scoring import score_job
@@ -303,8 +303,9 @@ def refresh_jobs(
             {"name": source["name"], "collected": len(collected), "inserted": inserted, "duplicates": source_duplicates, "error": ""}
         )
 
-    counts = db.freshness_counts(db_path)
-    active_jobs = db.list_jobs(path=db_path, active_only=True)
+    include_sample = api_env() == "local"
+    counts = db.freshness_counts(db_path, include_sample=include_sample)
+    active_jobs = db.list_jobs(path=db_path, active_only=True, include_sample=include_sample)
     bands = {
         "high_matches": sum(1 for item in active_jobs if item["match_score"] >= 70),
         "medium_matches": sum(1 for item in active_jobs if 55 <= item["match_score"] < 70),
@@ -322,7 +323,7 @@ def refresh_jobs(
         "jobs_marked_missing_or_closed": marked_missing,
         "errors": errors,
         "source_results": source_results,
-        **db.review_counts(db_path),
+        **db.review_counts(db_path, include_sample=include_sample),
         **counts,
         **bands,
     }

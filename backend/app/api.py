@@ -98,6 +98,10 @@ def ensure_seeded() -> None:
         refresh_jobs()
 
 
+def should_include_sample(include_sample: bool = False) -> bool:
+    return include_sample or api_env() == "local"
+
+
 def require_admin_refresh_token(x_admin_refresh_token: str | None = None) -> None:
     expected = admin_refresh_token()
     if api_env() != "production":
@@ -143,7 +147,8 @@ def app_version() -> str:
 @app.get("/deployment/status")
 def deployment_status() -> dict[str, Any]:
     configured_sources = load_sources()
-    jobs = db.list_jobs()
+    jobs = db.list_jobs(include_sample=should_include_sample())
+    sample_jobs = db.list_jobs(include_sample=True)
     runtime_type = database_runtime_type()
     real_sources_enabled = sum(1 for source in configured_sources if source.get("enabled") and source.get("name") != "Sample GIS Jobs")
     blockers = []
@@ -166,6 +171,7 @@ def deployment_status() -> dict[str, Any]:
         "cors_origins_count": len(cors_origins()),
         "source_count": len(configured_sources),
         "job_count": len(jobs),
+        "sample_job_count": sum(1 for job in sample_jobs if job.get("source") == db.SAMPLE_JOB_SOURCE),
         "real_sources_enabled": real_sources_enabled,
         "production_blockers": blockers,
         "production_ready": not blockers,
@@ -174,9 +180,9 @@ def deployment_status() -> dict[str, Any]:
 
 
 @app.get("/jobs")
-def jobs(status: str | None = None, active_only: bool = False) -> list[dict[str, Any]]:
+def jobs(status: str | None = None, active_only: bool = False, include_sample: bool = False) -> list[dict[str, Any]]:
     ensure_seeded()
-    return db.list_jobs(status=status, active_only=active_only)
+    return db.list_jobs(status=status, active_only=active_only, include_sample=should_include_sample(include_sample))
 
 
 @app.get("/jobs/{job_id}")
@@ -201,15 +207,15 @@ def admin_refresh_jobs(x_admin_refresh_token: str | None = Header(default=None, 
 
 
 @app.get("/review/queue")
-def review_queue(include_stale: bool = False) -> dict[str, list[dict[str, Any]]]:
+def review_queue(include_stale: bool = False, include_sample: bool = False) -> dict[str, list[dict[str, Any]]]:
     ensure_seeded()
-    return db.review_queue(include_stale=include_stale)
+    return db.review_queue(include_stale=include_stale, include_sample=should_include_sample(include_sample))
 
 
 @app.get("/application/board")
-def application_board() -> dict[str, list[dict[str, Any]]]:
+def application_board(include_sample: bool = False) -> dict[str, list[dict[str, Any]]]:
     ensure_seeded()
-    return db.application_board()
+    return db.application_board(include_sample=should_include_sample(include_sample))
 
 
 @app.get("/reports/latest")
@@ -367,9 +373,9 @@ def transcript_get_summary() -> dict[str, Any]:
 
 
 @app.get("/stats/overview")
-def overview() -> dict[str, Any]:
+def overview(include_sample: bool = False) -> dict[str, Any]:
     ensure_seeded()
-    jobs = db.list_jobs()
+    jobs = db.list_jobs(include_sample=should_include_sample(include_sample))
     return {
         "total": len(jobs),
         "high_matches": sum(1 for item in jobs if item["match_score"] >= 70),

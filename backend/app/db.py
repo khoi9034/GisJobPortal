@@ -26,6 +26,7 @@ VALID_REVIEW_STATUSES = {"unreviewed", "interested", "not_interested", "maybe", 
 VALID_PRIORITY_BUCKETS = {"urgent", "high", "medium", "low"}
 VALID_APPLICATION_METHODS = {"", "employer_portal", "email", "referral", "recruiter", "other"}
 VALID_OUTCOME_STATUSES = {"not_started", "ready_to_apply", "applied", "follow_up_due", "interview", "rejected", "closed", "withdrawn"}
+SAMPLE_JOB_SOURCE = "Sample GIS Jobs"
 
 JSON_FIELDS = {
     "scoring_breakdown",
@@ -642,13 +643,17 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
         return int(cursor.lastrowid), False
 
 
-def list_jobs(status: str | None = None, path: Path | str = DB_PATH, active_only: bool = False) -> list[dict[str, Any]]:
+def list_jobs(status: str | None = None, path: Path | str = DB_PATH, active_only: bool = False, include_sample: bool = True) -> list[dict[str, Any]]:
     init_db(path)
     sql = "SELECT * FROM jobs"
     params: list[Any] = []
     if status:
         sql += " WHERE status = ?"
         params.append(status)
+    if not include_sample:
+        sql += " AND" if params else " WHERE"
+        sql += " source != ?"
+        params.append(SAMPLE_JOB_SOURCE)
     if active_only:
         rules = freshness_rules()
         sql += " AND" if params else " WHERE"
@@ -677,9 +682,9 @@ def mark_missing_jobs(source: str, checked_at: str, seen_jobs: list[dict[str, An
         return len(missing_ids)
 
 
-def freshness_counts(path: Path | str = DB_PATH) -> dict[str, int]:
+def freshness_counts(path: Path | str = DB_PATH, include_sample: bool = True) -> dict[str, int]:
     rules = freshness_rules()
-    rows = list_jobs(path=path)
+    rows = list_jobs(path=path, include_sample=include_sample)
     closing_soon = 0
     for job in rows:
         closes = parse_date(job.get("source_closes_at"))
@@ -754,9 +759,9 @@ def unreviewed(job: dict[str, Any]) -> bool:
     return (job.get("review_status") or "unreviewed") == "unreviewed"
 
 
-def review_queue(path: Path | str = DB_PATH, include_stale: bool = False) -> dict[str, list[dict[str, Any]]]:
+def review_queue(path: Path | str = DB_PATH, include_stale: bool = False, include_sample: bool = True) -> dict[str, list[dict[str, Any]]]:
     today = now_iso()
-    rows = [job for job in list_jobs(path=path) if active_for_review(job, include_stale)]
+    rows = [job for job in list_jobs(path=path, include_sample=include_sample) if active_for_review(job, include_stale)]
     return {
         "new_today": [job for job in rows if unreviewed(job) and (job.get("first_seen_at") or job.get("date_found")) == today],
         "fresh_high_match": [job for job in rows if unreviewed(job) and int(job.get("match_score") or 0) >= 70 and not job.get("is_stale")],
@@ -767,9 +772,9 @@ def review_queue(path: Path | str = DB_PATH, include_stale: bool = False) -> dic
     }
 
 
-def review_counts(path: Path | str = DB_PATH) -> dict[str, int]:
-    queue = review_queue(path)
-    board = application_board(path)
+def review_counts(path: Path | str = DB_PATH, include_sample: bool = True) -> dict[str, int]:
+    queue = review_queue(path, include_sample=include_sample)
+    board = application_board(path, include_sample=include_sample)
     return {
         "unreviewed_jobs": len(queue["needs_review"]),
         "high_match_unreviewed_jobs": len(queue["fresh_high_match"]),
@@ -853,8 +858,8 @@ def follow_up_due(job: dict[str, Any]) -> bool:
     return bool(due and due <= today_utc() and not job.get("follow_up_sent_at") and job.get("outcome_status") not in {"rejected", "closed", "withdrawn"})
 
 
-def application_board(path: Path | str = DB_PATH) -> dict[str, list[dict[str, Any]]]:
-    rows = list_jobs(path=path)
+def application_board(path: Path | str = DB_PATH, include_sample: bool = True) -> dict[str, list[dict[str, Any]]]:
+    rows = list_jobs(path=path, include_sample=include_sample)
     active = [job for job in rows if not job.get("is_closed_or_missing")]
     return {
         "ready_to_apply": [job for job in active if (job.get("status") == "ready_to_apply" or job.get("outcome_status") == "ready_to_apply") and not job.get("application_started_at") and not job.get("applied_at")],

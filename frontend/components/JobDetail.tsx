@@ -23,6 +23,10 @@ function scoreBand(job: Job) {
   return "low fit";
 }
 
+function sampleJobBadge(job: Job) {
+  return job.source === "Sample GIS Jobs" ? <span className="chip warning">Demo sample job — not a live posting</span> : null;
+}
+
 export default function JobDetail({ id }: { id: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [packet, setPacket] = useState<ApplicationPacket | null>(null);
@@ -146,6 +150,7 @@ export default function JobDetail({ id }: { id: string }) {
           <div className="chips">
             <span className="chip">{job.freshness_bucket || "unknown"}</span>
             <span className="chip">{job.freshness_confidence || "unknown"}</span>
+            {sampleJobBadge(job)}
             {job.is_stale && <span className="chip red">stale</span>}
             {isClosingSoon(job) && <span className="chip warning">closing soon</span>}
           </div>
