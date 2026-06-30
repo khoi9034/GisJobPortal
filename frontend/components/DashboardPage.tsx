@@ -191,11 +191,17 @@ function nextSourceAction(source: Source) {
 }
 
 function sourceSummary(sources: Source[]) {
-  const unsupported = sources.filter((source) => source.coverage_tier === "unsupported" || /unsupported|login|workday|linkedin|indeed/i.test(`${source.notes} ${source.url}`)).length;
+  const isInternational = (source: Source) => /international|southeast_asia|apac/i.test(`${source.region_scope || ""} ${source.international_region || ""}`);
+  const isSea = (source: Source) => /southeast_asia|southeast asia/i.test(`${source.region_scope || ""} ${source.international_region || ""}`);
+  const unsupported = sources.filter((source) => source.coverage_tier === "unsupported" || (source.coverage_tier !== "big_board_email_alert" && /unsupported|login|workday|linkedin|indeed/i.test(`${source.notes} ${source.url}`))).length;
   return {
     active: sources.filter((source) => source.enabled).length,
     disabled: sources.filter((source) => !source.enabled).length,
     unsupported,
+    us: sources.filter((source) => !isInternational(source) && source.coverage_tier !== "unsupported").length,
+    international: sources.filter(isInternational).length,
+    southeastAsia: sources.filter(isSea).length,
+    seaStrongMatches: sources.reduce((sum, source) => sum + (source.strong_matches_by_region?.southeast_asia || 0), 0),
     manualReview: sources.filter((source) => !source.enabled && ["manual", "static_url"].includes(source.type) && !/unsupported|login/i.test(source.notes)).length,
     broadApi: sources.filter((source) => source.coverage_tier === "broad_api" && source.enabled).length,
     emailAlerts: sources.filter((source) => source.coverage_tier === "big_board_email_alert").length,
@@ -389,6 +395,10 @@ export default function DashboardPage({ view }: { view: View }) {
               <div className="stat"><strong>{sourceCounts.emailAlerts}</strong><span>Email alert sources</span></div>
               <div className="stat"><strong>{sourceCounts.publicAts}</strong><span>Active ATS</span></div>
               <div className="stat"><strong>{sourceCounts.governmentApi}</strong><span>Government APIs</span></div>
+              <div className="stat"><strong>{sourceCounts.us}</strong><span>US sources</span></div>
+              <div className="stat"><strong>{sourceCounts.international}</strong><span>International sources</span></div>
+              <div className="stat"><strong>{sourceCounts.southeastAsia}</strong><span>Southeast Asia sources</span></div>
+              <div className="stat"><strong>{sourceCounts.seaStrongMatches}</strong><span>SEA strong matches</span></div>
               <div className="stat"><strong>{sourceCounts.disabled}</strong><span>Disabled sources</span></div>
               <div className="stat"><strong>{sourceCounts.manualReview}</strong><span>Manual review</span></div>
               <div className="stat"><strong>{sourceCounts.unsupported}</strong><span>Unsupported</span></div>
@@ -397,7 +407,7 @@ export default function DashboardPage({ view }: { view: View }) {
             </div>
             {sources.map((source) => (
               <p key={source.name}>
-                <strong>{source.name}</strong> <span className="chip">{source.type}</span> {source.coverage_tier && <span className="chip">{source.coverage_tier.replaceAll("_", " ")}</span>} <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span>{source.requires_api_key && <span className={source.credentials_configured ? "chip green" : "chip warning"}>{source.credentials_configured ? "credentials present" : "credentials missing"}</span>}<br />
+                <strong>{source.name}</strong> <span className="chip">{source.type}</span> {source.coverage_tier && <span className="chip">{source.coverage_tier.replaceAll("_", " ")}</span>} {source.region_scope && <span className="chip">{source.region_scope.replaceAll("_", " ")}</span>} <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span>{source.requires_api_key && <span className={source.credentials_configured ? "chip green" : "chip warning"}>{source.credentials_configured ? "credentials present" : "credentials missing"}</span>}<br />
                 <span className="muted">{source.notes}</span>
                 {source.coverage_tier === "big_board_email_alert" && (
                   <>
@@ -416,7 +426,7 @@ export default function DashboardPage({ view }: { view: View }) {
                   </>
                 )}
                 <br />
-                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0} | total visible: {source.jobs_total ?? 0} | strong matches: {source.strong_matches ?? 0} | sampled: {source.jobs_sampled ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
+                <span className="muted">Jobs last run: {source.jobs_found_last_run ?? 0} | total visible: {source.jobs_total ?? 0} | strong matches: {source.strong_matches ?? 0} | SEA strong: {source.strong_matches_by_region?.southeast_asia ?? 0} | sampled: {source.jobs_sampled ?? 0}{source.last_error || source.errors_last_run ? ` | Error: ${source.last_error || source.errors_last_run}` : ""}</span>
                 <div className="chips">
                   {(source.supports_posted_date || source.posted_date_supported) && <span className="chip green">posted date</span>}
                   {(source.supports_close_date || source.close_date_supported) && <span className="chip green">close date</span>}

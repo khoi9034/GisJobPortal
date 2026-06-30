@@ -191,6 +191,30 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(any(source["name"] == "LinkedIn Job Alerts Email" and not source["enabled"] for source in sources))
         self.assertTrue(any(source["name"] == "Indeed Job Alerts Email" and not source["enabled"] for source in sources))
 
+    def test_southeast_asia_sources_are_disabled_safely(self):
+        sources = load_sources()
+        names = {source["name"]: source for source in sources}
+        for name in ["JSearch SEA", "SerpApi Google Jobs SEA", "Adzuna International", "Remotive APAC Remote"]:
+            self.assertFalse(names[name]["enabled"])
+            self.assertEqual(names[name]["coverage_tier"], "broad_api")
+            self.assertIn(names[name]["region_scope"], {"southeast_asia", "international", "apac"})
+        for name in ["JobStreet JobsDB Job Alerts Email", "Glints Job Alerts Email", "VietnamWorks Job Alerts Email", "TopCV Job Alerts Email"]:
+            self.assertFalse(names[name]["enabled"])
+            self.assertFalse(names[name]["scraping_supported"])
+            self.assertEqual(names[name]["coverage_tier"], "big_board_email_alert")
+        for name in ["LinkedIn SEA Scraping", "Indeed SEA Scraping", "JobStreet Scraping", "Glints Scraping", "VietnamWorks Scraping", "TopCV Scraping"]:
+            self.assertFalse(names[name]["enabled"])
+            self.assertEqual(names[name]["coverage_tier"], "unsupported")
+
+    def test_enabled_sea_broad_api_missing_keys_does_not_break_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            source = {"name": "JSearch SEA", "type": "api", "provider": "jsearch", "url": "https://jsearch.p.rapidapi.com/search", "enabled": True}
+            with patch.dict(os.environ, {"RAPIDAPI_KEY": ""}, clear=False), patch("backend.app.collectors.load_backend_env"):
+                result = collectors.refresh_jobs(path, sources_override=[source])
+        self.assertEqual(result["sources_checked"], 1)
+        self.assertIn("JSearch SEA", result["errors"])
+
     def test_enabled_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
@@ -402,6 +426,68 @@ class MvpTests(unittest.TestCase):
         self.assertIn("GIS Analyst", profiles["gis_analyst_nc"]["keywords"])
         self.assertTrue(profiles["planning_gis_nc"]["include_remote"])
 
+    def test_international_search_profiles_load(self):
+        profiles = load_search_profiles()
+        for name in ["international_gis", "southeast_asia_gis", "vietnam_gis", "singapore_gis", "malaysia_gis", "thailand_gis", "indonesia_gis", "philippines_gis", "remote_apac_gis"]:
+            self.assertIn(name, profiles)
+            self.assertFalse(profiles[name]["enabled"])
+            self.assertEqual(profiles[name]["preferred_language"], "English")
+            self.assertIn("GIS Analyst", profiles[name]["role_keywords"])
+
+    def test_country_region_fields_serialize(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job({
+                **self.job,
+                "source_url": "https://example.com/sea-serialize",
+                "country": "Vietnam",
+                "region": "southeast_asia",
+                "international_region": "Southeast Asia",
+                "language_requirement": "English",
+                "timezone_note": "ICT / APAC overlap",
+            }, path)
+            row = db.get_job(job_id, path)
+        self.assertEqual(row["country"], "Vietnam")
+        self.assertEqual(row["international_region"], "Southeast Asia")
+        self.assertEqual(row["language_requirement"], "English")
+
+    def test_international_scoring_boosts_sea_gis_role(self):
+        scored = score_job({
+            **self.job,
+            "title": "Geospatial Analyst",
+            "location": "Singapore",
+            "country": "Singapore",
+            "international_region": "Southeast Asia",
+            "language_requirement": "English",
+            "description": "GIS, QGIS, ArcGIS, geospatial dashboards, spatial analysis, Python, SQL, and smart city planning.",
+            "requirements": "English professional communication and urban planning data analysis.",
+        }, self.profile)
+        self.assertGreaterEqual(scored["match_score"], 70)
+        self.assertGreater(scored["scoring_breakdown"]["international_region_fit"], 0)
+        self.assertIn("Singapore", scored["positive_matches"])
+
+    def test_visa_citizenship_language_constraints_lower_international_score(self):
+        base = {
+            **self.job,
+            "title": "GIS Analyst",
+            "location": "Bangkok, Thailand",
+            "country": "Thailand",
+            "international_region": "Southeast Asia",
+            "description": "GIS, ArcGIS, QGIS, spatial analysis, transportation planning, Python, SQL, and dashboards.",
+        }
+        open_role = score_job({**base, "requirements": "English professional communication."}, self.profile)
+        constrained = score_job({**base, "requirements": "Thai citizenship required. Native Thai required. Relocation required."}, self.profile)
+        self.assertLess(constrained["match_score"], open_role["match_score"])
+        self.assertIn("local citizenship required", constrained["penalty_matches"])
+        self.assertIn("native language only", constrained["penalty_matches"])
+
+    def test_sea_email_alert_sources_do_not_scrape_remote_pages(self):
+        source = {"name": "JobStreet JobsDB Job Alerts Email", "type": "gmail_job_alerts", "url": "gmail://job-alerts/jobstreet-jobsdb", "enabled": True, "coverage_tier": "big_board_email_alert"}
+        with patch("urllib.request.urlopen") as opener:
+            jobs = collectors.collect_from_source(source)
+        self.assertEqual(jobs, [])
+        opener.assert_not_called()
+
     def test_greenhouse_collector_normalizes_mock_response(self):
         source = {
             "name": "Example Greenhouse",
@@ -443,7 +529,7 @@ class MvpTests(unittest.TestCase):
     def test_source_status_endpoint_includes_freshness_support_fields(self):
         rows = sources_endpoint()
         self.assertTrue(rows)
-        for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "last_checked_at", "last_error"]:
+        for field in ["supports_posted_date", "supports_updated_date", "supports_close_date", "freshness_confidence_default", "last_checked_at", "last_error", "strong_matches_by_region"]:
             self.assertIn(field, rows[0])
 
     def test_sources_endpoint_returns_config_when_db_status_unavailable(self):
@@ -586,6 +672,8 @@ class MvpTests(unittest.TestCase):
         self.assertIn("Promise.allSettled", dashboard_text)
         self.assertIn("Live API connected, but no jobs returned for this filter", dashboard_text)
         self.assertIn("Hosted refresh admin-only", dashboard_text)
+        self.assertIn("International sources", dashboard_text)
+        self.assertIn("Southeast Asia sources", dashboard_text)
         self.assertNotIn("ADMIN_REFRESH_TOKEN", dashboard_text)
 
     def test_check_frontend_data_mode_does_not_expose_secrets(self):
@@ -1037,6 +1125,26 @@ class MvpTests(unittest.TestCase):
             rows = db.apply_today(path=path)
 
         self.assertEqual([job["title"] for job in rows], ["Good Real Job"])
+
+    def test_apply_today_excludes_low_fit_international_broad_api_noise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "title": "Strong GIS Job", "source": "Woolpert Careers", "source_url": "https://example.com/strong-sea-real", "match_score": 82, "date_posted": db.now_iso()}, path)
+            db.insert_job({
+                **self.job,
+                "title": "SEA Broad Noise",
+                "source": "JSearch SEA",
+                "source_url": "https://example.com/sea-broad-noise",
+                "location": "Singapore",
+                "country": "Singapore",
+                "international_region": "Southeast Asia",
+                "match_score": 30,
+                "date_posted": db.now_iso(),
+                "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.",
+            }, path)
+            rows = db.apply_today(path=path)
+
+        self.assertEqual([job["title"] for job in rows], ["Strong GIS Job"])
 
     def test_apply_today_closing_soon_breaks_similar_score_tie(self):
         with tempfile.TemporaryDirectory() as tmp:

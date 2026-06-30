@@ -33,6 +33,12 @@ POSITIVE_KEYWORDS = [
     "digital twin",
     "urban planning",
     "data analyst",
+    "QGIS",
+    "remote sensing",
+    "smart city",
+    "smart cities",
+    "location intelligence",
+    "climate resilience",
 ]
 
 PENALTY_KEYWORDS = [
@@ -82,6 +88,28 @@ CATEGORY_KEYWORDS = {
     "location_fit": ["Concord", "Cabarrus", "Charlotte", "North Carolina", "NC", "remote", "hybrid"],
 }
 
+SEA_LOCATION_KEYWORDS = [
+    "Vietnam",
+    "Singapore",
+    "Malaysia",
+    "Thailand",
+    "Indonesia",
+    "Philippines",
+    "Southeast Asia",
+    "SEA",
+    "APAC",
+    "Asia Pacific",
+    "Remote APAC",
+]
+
+INTERNATIONAL_CONSTRAINT_PATTERNS = [
+    ("local citizenship required", r"\b(citizen|citizenship|permanent resident)\b.{0,35}\b(required|only|must)\b"),
+    ("work authorization unclear", r"\b(must be authorized|valid work permit|eligible to work|work authorization required)\b"),
+    ("local candidates only", r"\b(local candidates only|local applicants only)\b"),
+    ("native language only", r"\b(native|fluent)\s+(thai|bahasa|malay|tagalog|filipino|indonesian)\b"),
+    ("relocation required", r"\b(relocation required|must relocate|onsite only)\b"),
+]
+
 CATEGORY_WEIGHTS = {
     "gis_relevance": 18,
     "planning_relevance": 12,
@@ -109,7 +137,21 @@ def score_band(score: int) -> str:
 def normalized_text(job: dict[str, Any]) -> str:
     return " ".join(
         str(job.get(field, ""))
-        for field in ["title", "company", "location", "description", "requirements", "remote_status", "source"]
+        for field in [
+            "title",
+            "company",
+            "location",
+            "country",
+            "region",
+            "international_region",
+            "work_authorization_note",
+            "language_requirement",
+            "timezone_note",
+            "description",
+            "requirements",
+            "remote_status",
+            "source",
+        ]
     ).lower()
 
 
@@ -141,6 +183,10 @@ def find_penalties(job: dict[str, Any], text: str) -> list[str]:
         if keyword.lower() in text:
             matches.append(keyword)
     return sorted(set(matches), key=str.lower)
+
+
+def find_international_constraints(text: str) -> list[str]:
+    return sorted({label for label, pattern in INTERNATIONAL_CONSTRAINT_PATTERNS if re.search(pattern, text)}, key=str.lower)
 
 
 def category_score(text: str, keywords: list[str], weight: int) -> tuple[int, list[str]]:
@@ -181,9 +227,19 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     seniority_penalty = min(35, len(penalties) * 12)
     breakdown["seniority_penalty"] = -seniority_penalty
     breakdown["freshness"] = freshness_score(job)
+    sea_hits = find_matches(text, SEA_LOCATION_KEYWORDS)
+    is_gis_or_planning = bool(title_hits or breakdown["gis_relevance"] >= 9 or breakdown["planning_relevance"] >= 8)
+    remote_apac = "remote" in text and any(term in text for term in ["apac", "southeast asia", "asia pacific"])
+    english_hit = "english" in text
+    international_constraints = find_international_constraints(text)
+    breakdown["international_region_fit"] = 8 if sea_hits and is_gis_or_planning else 0
+    breakdown["remote_apac_fit"] = 5 if remote_apac and is_gis_or_planning else 0
+    breakdown["english_role_fit"] = 4 if english_hit and sea_hits else 0
+    breakdown["work_authorization_language_penalty"] = -min(24, len(international_constraints) * 8)
 
     total = max(0, min(100, sum(breakdown.values())))
-    positives = sorted(set(keyword_matches + title_hits + entry_hits), key=str.lower)
+    penalties = sorted(set(penalties + international_constraints), key=str.lower)
+    positives = sorted(set(keyword_matches + title_hits + entry_hits + sea_hits + (["English"] if english_hit and sea_hits else [])), key=str.lower)
     missing = missing_qualifications(text, profile)
     fit_reasons = []
     if breakdown["title_match"]:
@@ -202,11 +258,19 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         fit_reasons.append("Good North Carolina or remote location fit")
     if breakdown["entry_pathways_boost"]:
         fit_reasons.append("Entry-level or recent-graduate language helps fit")
+    if breakdown["international_region_fit"]:
+        fit_reasons.append("Matches Southeast Asia or APAC target geography")
+    if breakdown["remote_apac_fit"]:
+        fit_reasons.append("Remote APAC language helps international fit")
     if seniority_penalty:
         fit_reasons.append("Seniority requirements may be above current target level")
+    if international_constraints:
+        fit_reasons.append("Work authorization, language, or relocation constraints need review")
 
     if "parcel" in text or "zoning" in text or "land use" in text:
         resume_angle = "Lead with Cabarrus County GIS, parcels, zoning, public data, and Cabarrus FutureScape."
+    elif "qgis" in text or "remote sensing" in text:
+        resume_angle = "Lead with GIS analysis, ArcGIS/QGIS-adjacent workflows, Python, SQL/PostGIS, and spatial data communication."
     elif "python" in text or "sql" in text:
         resume_angle = "Lead with GIS automation, Python/SQL, GeoPandas, and data workflow experience."
     else:
@@ -221,6 +285,8 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         reason_parts.append("Python/SQL/automation matched")
     if penalties:
         reason_parts.append("seniority or credential penalties applied")
+    if sea_hits:
+        reason_parts.append("SEA/APAC geography matched")
     if breakdown["freshness"] > 0:
         reason_parts.append("freshness helped")
     elif breakdown["freshness"] < 0:

@@ -440,11 +440,16 @@ def sources() -> list[dict[str, Any]]:
         live_jobs = db.list_jobs(include_sample=should_include_sample())
     except Exception:
         live_jobs = []
-    source_counts: dict[str, dict[str, int]] = {}
+    sea_terms = ("vietnam", "singapore", "malaysia", "thailand", "indonesia", "philippines", "southeast asia", "apac")
+    source_counts: dict[str, dict[str, Any]] = {}
     for item in live_jobs:
-        bucket = source_counts.setdefault(item.get("source", ""), {"jobs_total": 0, "strong_matches": 0})
+        bucket = source_counts.setdefault(item.get("source", ""), {"jobs_total": 0, "strong_matches": 0, "strong_matches_by_region": {"southeast_asia": 0}})
         bucket["jobs_total"] += 1
-        bucket["strong_matches"] += int(int(item.get("match_score") or 0) >= 70)
+        strong = int(item.get("match_score") or 0) >= 70
+        bucket["strong_matches"] += int(strong)
+        text = " ".join(str(item.get(field, "")) for field in ("location", "country", "region", "international_region", "remote_status")).lower()
+        if strong and any(term in text for term in sea_terms):
+            bucket["strong_matches_by_region"]["southeast_asia"] += 1
     rows = []
     for source in configured:
         row = {**source, **saved.get(source["name"], {})}
@@ -461,7 +466,7 @@ def sources() -> list[dict[str, Any]]:
         row["gmail_configured"] = gmail_is_configured if row.get("coverage_tier") == "big_board_email_alert" else None
         row["gmail_ingestion_enabled"] = gmail_enabled if row.get("coverage_tier") == "big_board_email_alert" else None
         row["gmail_alert_query"] = os.getenv("GMAIL_ALERT_QUERY", "(from:linkedin.com OR from:indeed.com) newer_than:14d") if row.get("coverage_tier") == "big_board_email_alert" else ""
-        row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0}))
+        row.update(source_counts.get(source["name"], {"jobs_total": 0, "strong_matches": 0, "strong_matches_by_region": {"southeast_asia": 0}}))
         rows.append(row)
     return rows
 

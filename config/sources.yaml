@@ -220,6 +220,171 @@ sources:
     quality_score: 45
     terms_notes: Public Remotive API only; no scraping.
     notes: Disabled public remote jobs API source; enable only if remote GIS/data roles are useful.
+  - name: JSearch SEA
+    type: api
+    provider: jsearch
+    url: https://jsearch.p.rapidapi.com/search
+    enabled: false
+    coverage_tier: broad_api
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    requires_api_key: true
+    required_env:
+      - RAPIDAPI_KEY
+    search_terms:
+      - GIS Analyst
+      - Geospatial Analyst
+      - Spatial Data Analyst
+      - Urban Planning Analyst
+      - Transportation Planning Analyst
+      - Location Intelligence Analyst
+      - Remote Sensing Analyst
+      - ArcGIS Analyst
+      - QGIS Analyst
+    locations:
+      - Vietnam
+      - Singapore
+      - Malaysia
+      - Thailand
+      - Indonesia
+      - Philippines
+      - Remote APAC
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, Transportation, Location Intelligence, Remote Sensing, ArcGIS, QGIS]
+    exclude_title_keywords: [Software Engineer, Sales, Marketing, Accountant, Customer Support]
+    exclude_seniority_keywords: [Senior, Principal, Manager, Director]
+    include_remote: true
+    min_score_by_source: 50
+    max_jobs_per_source_per_refresh: 70
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: false
+    freshness_support: posted date when JSearch returns job_posted_at_datetime_utc.
+    dedupe_priority: 45
+    quality_score: 55
+    terms_notes: Use RapidAPI/JSearch API terms; preserve publisher attribution and do not scrape boards.
+    notes: Disabled SEA broad API source; requires RAPIDAPI_KEY and quality review before enabling.
+  - name: SerpApi Google Jobs SEA
+    type: api
+    provider: serpapi
+    url: https://serpapi.com/search.json
+    enabled: false
+    coverage_tier: broad_api
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    requires_api_key: true
+    required_env:
+      - SERPAPI_KEY
+    search_terms:
+      - GIS Analyst
+      - Geospatial Analyst
+      - Spatial Data Analyst
+      - Urban Planning Analyst
+      - Transport Planning Analyst
+      - Location Intelligence Analyst
+      - Remote Sensing Analyst
+      - ArcGIS Analyst
+      - QGIS Analyst
+    locations:
+      - Vietnam
+      - Singapore
+      - Malaysia
+      - Thailand
+      - Indonesia
+      - Philippines
+      - Remote APAC
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, Transportation, Location Intelligence, Remote Sensing, ArcGIS, QGIS]
+    exclude_title_keywords: [Software Engineer, Sales, Marketing, Accountant, Customer Support]
+    exclude_seniority_keywords: [Senior, Principal, Manager, Director]
+    include_remote: true
+    min_score_by_source: 50
+    max_jobs_per_source_per_refresh: 70
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: true
+    freshness_support: Google Jobs dates are treated as first-seen unless a reliable source date appears.
+    dedupe_priority: 40
+    quality_score: 50
+    terms_notes: Use SerpApi Google Jobs API; do not scrape Google, JobStreet, JobsDB, LinkedIn, or Indeed.
+    notes: Disabled SEA broad API source; requires SERPAPI_KEY and careful dedupe/quality checks.
+  - name: Adzuna International
+    type: api
+    provider: adzuna
+    url: https://api.adzuna.com/v1/api/jobs/sg/search/1
+    enabled: false
+    coverage_tier: broad_api
+    region_scope: international
+    international_region: Southeast Asia
+    target_countries: [Singapore, Malaysia]
+    requires_api_key: true
+    required_env:
+      - ADZUNA_APP_ID
+      - ADZUNA_APP_KEY
+    search_terms:
+      - GIS Analyst
+      - Geospatial Analyst
+      - Spatial Data Analyst
+      - Urban Planning Analyst
+      - Transportation Planning Analyst
+      - Location Intelligence Analyst
+      - Remote Sensing Analyst
+    locations:
+      - Singapore
+      - Malaysia
+      - Remote
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, Transportation, Location Intelligence, Remote Sensing, ArcGIS, QGIS]
+    exclude_title_keywords: [Software Engineer, Sales, Marketing, Accountant, Customer Support]
+    exclude_seniority_keywords: [Senior, Principal, Manager, Director]
+    include_remote: true
+    min_score_by_source: 50
+    max_jobs_per_source_per_refresh: 50
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: false
+    freshness_support: posted date when Adzuna returns created.
+    dedupe_priority: 50
+    quality_score: 55
+    terms_notes: Use Adzuna API only in countries it supports; do not scrape underlying boards.
+    notes: Disabled international broad API source; set country endpoint deliberately before enabling.
+  - name: Remotive APAC Remote
+    type: api
+    provider: remotive
+    url: https://remotive.com/api/remote-jobs
+    enabled: false
+    coverage_tier: broad_api
+    region_scope: apac
+    international_region: Southeast Asia
+    target_countries: [Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    requires_api_key: false
+    search_terms:
+      - GIS
+      - Geospatial
+      - Spatial Analyst
+      - Remote Sensing
+      - Location Intelligence
+      - QGIS
+      - ArcGIS
+    locations:
+      - Remote APAC
+    title_keywords: [GIS, Geospatial, Spatial, Remote Sensing, Location Intelligence, ArcGIS, QGIS]
+    exclude_title_keywords: [Software Engineer, Sales, Marketing, Customer Support]
+    exclude_seniority_keywords: [Senior, Principal, Manager, Director]
+    include_remote: true
+    min_score_by_source: 50
+    max_jobs_per_source_per_refresh: 40
+    posted_date_supported: true
+    close_date_supported: false
+    updated_date_supported: false
+    first_seen_only: false
+    freshness_support: Remotive publication_date is treated as posted date.
+    dedupe_priority: 35
+    quality_score: 45
+    terms_notes: Public Remotive API only; no scraping.
+    notes: Disabled APAC remote source; enable only after confirming useful GIS/geospatial signal.
   - name: LinkedIn Job Alerts Email
     type: linkedin_email_alert
     url: gmail://job-alerts/linkedin
@@ -254,6 +419,126 @@ sources:
     quality_score: 65
     terms_notes: Reads authorized Gmail job-alert emails only; does not scrape or log into Indeed.
     notes: Disabled until Gmail ingestion is authorized and configured.
+  - name: LinkedIn SEA Job Alerts Email
+    type: linkedin_email_alert
+    url: gmail://job-alerts/linkedin-sea
+    enabled: false
+    coverage_tier: big_board_email_alert
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only unless the email includes a reliable posting date.
+    dedupe_priority: 75
+    quality_score: 65
+    terms_notes: Reads authorized Gmail job-alert emails only; does not scrape or log into LinkedIn.
+    notes: Create LinkedIn SEA/APAC alerts manually, then ingest the alert emails through Gmail.
+  - name: Indeed SEA Job Alerts Email
+    type: indeed_email_alert
+    url: gmail://job-alerts/indeed-sea
+    enabled: false
+    coverage_tier: big_board_email_alert
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Singapore, Malaysia, Thailand, Philippines, Vietnam, Indonesia]
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only unless the email includes a reliable posting date.
+    dedupe_priority: 75
+    quality_score: 65
+    terms_notes: Reads authorized Gmail job-alert emails only; does not scrape or log into Indeed.
+    notes: Create Indeed SEA alerts manually, then ingest the alert emails through Gmail.
+  - name: JobStreet JobsDB Job Alerts Email
+    type: gmail_job_alerts
+    url: gmail://job-alerts/jobstreet-jobsdb
+    enabled: false
+    coverage_tier: big_board_email_alert
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only.
+    dedupe_priority: 70
+    quality_score: 60
+    terms_notes: Reads authorized Gmail alert emails only; no JobStreet/JobsDB scraping.
+    notes: Manual alert-email source for JobStreet/JobsDB; disabled until Gmail rules are configured.
+  - name: Glints Job Alerts Email
+    type: gmail_job_alerts
+    url: gmail://job-alerts/glints
+    enabled: false
+    coverage_tier: big_board_email_alert
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Vietnam, Singapore, Indonesia, Malaysia, Thailand, Philippines]
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only.
+    dedupe_priority: 70
+    quality_score: 55
+    terms_notes: Reads authorized Gmail alert emails only; no Glints scraping.
+    notes: Manual alert-email source for Glints; disabled until Gmail rules are configured.
+  - name: VietnamWorks Job Alerts Email
+    type: gmail_job_alerts
+    url: gmail://job-alerts/vietnamworks
+    enabled: false
+    coverage_tier: big_board_email_alert
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Vietnam]
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only.
+    dedupe_priority: 70
+    quality_score: 55
+    terms_notes: Reads authorized Gmail alert emails only; no VietnamWorks scraping.
+    notes: Manual alert-email source for VietnamWorks; disabled until Gmail rules are configured.
+  - name: TopCV Job Alerts Email
+    type: gmail_job_alerts
+    url: gmail://job-alerts/topcv
+    enabled: false
+    coverage_tier: big_board_email_alert
+    region_scope: southeast_asia
+    international_region: Southeast Asia
+    target_countries: [Vietnam]
+    requires_oauth: true
+    scraping_supported: false
+    auto_apply_supported: false
+    first_seen_only: true
+    posted_date_supported: false
+    close_date_supported: false
+    updated_date_supported: false
+    freshness_support: Alert email first-seen only.
+    dedupe_priority: 70
+    quality_score: 50
+    terms_notes: Reads authorized Gmail alert emails only; no TopCV scraping.
+    notes: Manual alert-email source for TopCV; disabled until Gmail rules are configured.
   - name: NC Government Jobs
     type: static_url
     url: https://www.governmentjobs.com/careers/northcarolina
@@ -554,3 +839,57 @@ sources:
     requires_api_key: false
     first_seen_only: true
     notes: Unsupported/login portal; manual browser review only.
+  - name: LinkedIn SEA Scraping
+    type: manual
+    url: https://www.linkedin.com/jobs/
+    enabled: false
+    coverage_tier: unsupported
+    region_scope: southeast_asia
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for automation; use email alerts or manual browser review only, no scraping or login automation.
+  - name: Indeed SEA Scraping
+    type: manual
+    url: https://www.indeed.com/
+    enabled: false
+    coverage_tier: unsupported
+    region_scope: southeast_asia
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for automation; use email alerts or manual browser review only, no scraping or login automation.
+  - name: JobStreet Scraping
+    type: manual
+    url: https://www.jobstreet.com/
+    enabled: false
+    coverage_tier: unsupported
+    region_scope: southeast_asia
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for direct automation; use job-alert emails or manual browser review only.
+  - name: Glints Scraping
+    type: manual
+    url: https://glints.com/
+    enabled: false
+    coverage_tier: unsupported
+    region_scope: southeast_asia
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for direct automation; use job-alert emails or manual browser review only.
+  - name: VietnamWorks Scraping
+    type: manual
+    url: https://www.vietnamworks.com/
+    enabled: false
+    coverage_tier: unsupported
+    region_scope: southeast_asia
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for direct automation; use job-alert emails or manual browser review only.
+  - name: TopCV Scraping
+    type: manual
+    url: https://www.topcv.vn/
+    enabled: false
+    coverage_tier: unsupported
+    region_scope: southeast_asia
+    requires_api_key: false
+    first_seen_only: true
+    notes: Unsupported for direct automation; use job-alert emails or manual browser review only.

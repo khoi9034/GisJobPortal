@@ -29,6 +29,10 @@ target_groups:
     notes: City GIS, planning, transportation, utilities, and public works teams.
   charlotte_metro_employers:
     notes: Local public agencies, utilities, and private employers around Charlotte.
+  southeast_asia_sources:
+    notes: Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines, and remote APAC GIS/planning sources.
+  international_remote:
+    notes: Remote APAC or globally remote GIS/geospatial roles with clear language and work-authorization fit.
   consulting_firms:
     notes: GIS, planning, engineering, transportation, utilities, and location-intelligence firms.
   unsupported_manual_only:

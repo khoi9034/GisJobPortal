@@ -396,7 +396,7 @@ GMAIL_CLIENT_ID=replace_with_local_secret_only
 GMAIL_CLIENT_SECRET=replace_with_local_secret_only
 GMAIL_TOKEN_PATH=runtime/secrets/gmail_token.local.json
 GMAIL_TOKEN_JSON_BASE64=replace_with_render_secret_only
-GMAIL_ALERT_QUERY=(from:linkedin.com OR from:indeed.com OR subject:("job alert")) newer_than:14d
+GMAIL_ALERT_QUERY=(from:linkedin.com OR from:indeed.com OR from:jobstreet.com OR from:jobsdb.com OR from:glints.com OR from:vietnamworks.com OR from:topcv.vn OR subject:("job alert")) newer_than:14d
 ```
 
 Run local + hosted setup:
@@ -415,6 +415,18 @@ python scripts\ingest_gmail_job_alerts.py --source-hint linkedin --text-file pat
 ```
 
 See `docs/GMAIL_JOB_ALERT_INGESTION.md`.
+
+## International / Southeast Asia Coverage
+
+International coverage is prepared for Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines, and remote APAC roles. New SEA broad API and email-alert sources are disabled by default until credentials or Gmail OAuth are configured.
+
+Safe source paths only:
+
+- broad APIs: JSearch/RapidAPI, SerpApi, Adzuna where supported, Remotive
+- email alerts: LinkedIn, Indeed, JobStreet/JobsDB, Glints, VietnamWorks, TopCV
+- manual review for unsupported/login boards
+
+The app does not scrape LinkedIn, Indeed, JobStreet, JobsDB, Glints, VietnamWorks, TopCV, Workday, iCIMS, Taleo, Oracle Cloud, or login-required portals. See `docs/INTERNATIONAL_JOB_COVERAGE.md`.
 
 ## Private Documents
 

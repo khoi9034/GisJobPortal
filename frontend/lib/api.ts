@@ -12,6 +12,13 @@ export type Job = {
   title: string;
   company: string;
   location: string;
+  country?: string;
+  region?: string;
+  international_region?: string;
+  work_authorization_note?: string;
+  language_requirement?: string;
+  relocation_required?: string;
+  timezone_note?: string;
   remote_status: string;
   source: string;
   source_url: string;
@@ -124,6 +131,9 @@ export type Source = {
   supports_updated_date?: boolean;
   freshness_confidence_default?: string;
   coverage_tier?: string;
+  region_scope?: string;
+  international_region?: string;
+  target_countries?: string[];
   requires_api_key?: boolean;
   requires_oauth?: boolean;
   scraping_supported?: boolean;
@@ -141,6 +151,7 @@ export type Source = {
   max_jobs_per_source_per_refresh?: number;
   jobs_total?: number;
   strong_matches?: number;
+  strong_matches_by_region?: Record<string, number>;
 };
 
 export type Stats = {

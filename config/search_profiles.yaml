@@ -47,3 +47,111 @@ profiles:
     include_remote: true
     min_score: 60
     notes: Federal searches, primarily through USAJobs after credentials are configured.
+  international_gis:
+    enabled: false
+    countries: [Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    locations: [Southeast Asia, APAC, Remote APAC]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Transportation Planning Analyst, Location Intelligence Analyst, Remote Sensing Analyst, Smart Cities Analyst, Climate Resilience Analyst, Land Use Analyst, Development Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, Transportation, Location Intelligence, Remote Sensing, Smart Cities, Climate Resilience, Land Use, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, geospatial, spatial analysis, remote sensing, Python, SQL, PostGIS, urban planning, transportation planning, land use, smart city, location intelligence, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, local citizenship required, native language only, unrelated software engineer]
+    preferred_language: English
+    remote_preference: Remote APAC or hybrid roles with clear eligibility.
+    min_score: 60
+    notes: Disabled framework profile for international GIS/planning coverage through APIs and email alerts only.
+  southeast_asia_gis:
+    enabled: false
+    countries: [Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    locations: [Southeast Asia, Ho Chi Minh City, Hanoi, Singapore, Kuala Lumpur, Bangkok, Jakarta, Manila, Remote APAC]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Transportation Planning Analyst, Location Intelligence Analyst, Remote Sensing Analyst, Smart Cities Analyst, Climate Resilience Analyst, Land Use Analyst, Development Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, Transportation, Location Intelligence, Remote Sensing, Smart Cities, Land Use, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, geospatial, spatial analysis, remote sensing, Python, SQL, PostGIS, urban planning, transportation planning, land use, smart city, location intelligence, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, citizens only, local applicants only]
+    preferred_language: English
+    remote_preference: Include remote and hybrid roles when work authorization is clear.
+    min_score: 60
+    notes: SEA profile shared by broad APIs and Gmail job-alert sources.
+  vietnam_gis:
+    enabled: false
+    countries: [Vietnam]
+    locations: [Vietnam, Ho Chi Minh City, Hanoi, Da Nang, Remote Vietnam]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Location Intelligence Analyst, Remote Sensing Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Remote Sensing, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, spatial analysis, remote sensing, Python, SQL, PostGIS, urban planning, land use, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager]
+    preferred_language: English
+    remote_preference: Remote or Vietnam-based roles with English support.
+    min_score: 55
+    notes: Vietnam GIS and planning searches; no VietnamWorks/TopCV scraping.
+  singapore_gis:
+    enabled: false
+    countries: [Singapore]
+    locations: [Singapore, Remote Singapore, Remote APAC]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Transportation Planning Analyst, Smart Cities Analyst, Location Intelligence Analyst, Remote Sensing Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, Smart Cities, Location Intelligence, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, geospatial, Python, SQL, PostGIS, transportation planning, smart city, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, Singapore citizens only]
+    preferred_language: English
+    remote_preference: Remote APAC, hybrid, or clear visa/work eligibility.
+    min_score: 60
+    notes: Singapore GIS, transport planning, smart-city, and location-intelligence searches.
+  malaysia_gis:
+    enabled: false
+    countries: [Malaysia]
+    locations: [Malaysia, Kuala Lumpur, Selangor, Remote Malaysia, Remote APAC]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Location Intelligence Analyst, Remote Sensing Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, spatial analysis, remote sensing, Python, SQL, PostGIS, urban planning, transportation planning, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, local candidates only]
+    preferred_language: English
+    remote_preference: Remote/hybrid with clear eligibility.
+    min_score: 55
+    notes: Malaysia GIS/planning searches through APIs and email alerts.
+  thailand_gis:
+    enabled: false
+    countries: [Thailand]
+    locations: [Thailand, Bangkok, Remote Thailand, Remote APAC]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Location Intelligence Analyst, Remote Sensing Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Transport, Remote Sensing, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, spatial analysis, remote sensing, Python, SQL, PostGIS, urban planning, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, native Thai required]
+    preferred_language: English
+    remote_preference: Remote/hybrid with English-language role details.
+    min_score: 55
+    notes: Thailand GIS/planning searches; language requirements are reviewed carefully.
+  indonesia_gis:
+    enabled: false
+    countries: [Indonesia]
+    locations: [Indonesia, Jakarta, Remote Indonesia, Remote APAC]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Location Intelligence Analyst, Remote Sensing Analyst, Climate Resilience Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Remote Sensing, Climate, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, spatial analysis, remote sensing, Python, SQL, PostGIS, climate resilience, urban planning, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, native Bahasa required]
+    preferred_language: English
+    remote_preference: Remote/hybrid with clear eligibility.
+    min_score: 55
+    notes: Indonesia GIS, remote sensing, planning, and resilience searches.
+  philippines_gis:
+    enabled: false
+    countries: [Philippines]
+    locations: [Philippines, Manila, Metro Manila, Remote Philippines, Remote APAC]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Urban Planning Analyst, Transport Planning Analyst, Location Intelligence Analyst, Remote Sensing Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Planning, Remote Sensing, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, spatial analysis, remote sensing, Python, SQL, PostGIS, urban planning, transportation planning, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, local applicants only]
+    preferred_language: English
+    remote_preference: Remote/hybrid or local roles with clear eligibility.
+    min_score: 55
+    notes: Philippines GIS/planning searches through email alerts and broad APIs.
+  remote_apac_gis:
+    enabled: false
+    countries: [Vietnam, Singapore, Malaysia, Thailand, Indonesia, Philippines]
+    locations: [Remote APAC, Remote Southeast Asia, Asia Pacific, Remote]
+    role_keywords: [GIS Analyst, Geospatial Analyst, Spatial Data Analyst, Location Intelligence Analyst, Remote Sensing Analyst, Smart Cities Analyst, Climate Resilience Analyst, ArcGIS Analyst, QGIS Analyst]
+    title_keywords: [GIS, Geospatial, Spatial, Location Intelligence, Remote Sensing, Smart Cities, Climate, ArcGIS, QGIS]
+    skill_keywords: [ArcGIS, QGIS, GIS, geospatial, spatial analysis, remote sensing, Python, SQL, PostGIS, smart city, location intelligence, dashboard, web map]
+    exclude_keywords: [Senior, Principal, Director, Manager, US only, local candidates only]
+    preferred_language: English
+    remote_preference: Strongly prefer remote APAC or globally remote roles.
+    min_score: 60
+    notes: Remote APAC searches; disabled until broad API or email-alert credentials are configured.
