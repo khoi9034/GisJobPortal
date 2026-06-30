@@ -15,7 +15,7 @@ from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, deployment_status, health, jobs as jobs_endpoint, latest_report as latest_report_endpoint, overview as overview_endpoint, refresh as refresh_endpoint, review_queue as review_queue_endpoint, sources as sources_endpoint, validate_source_config
+from backend.app.api import admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, apply_today as apply_today_endpoint, deployment_status, health, jobs as jobs_endpoint, latest_report as latest_report_endpoint, overview as overview_endpoint, refresh as refresh_endpoint, review_queue as review_queue_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -782,6 +782,59 @@ class MvpTests(unittest.TestCase):
         self.assertIn('if (API_MODE === "demo") return demoApi', api_text)
         self.assertIn("Demo sample job — not a live posting", dashboard_text)
         self.assertIn("Demo sample job — not a live posting", detail_text)
+
+    def test_apply_today_defaults_to_five_and_excludes_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            for index in range(7):
+                db.insert_job({**self.job, "title": f"GIS Analyst {index}", "source": "USAJobs API", "source_url": f"https://example.com/apply-today-{index}", "match_score": 80 - index, "date_posted": db.now_iso()}, path)
+            db.insert_job({**self.job, "title": "Sample Top Job", "source": db.SAMPLE_JOB_SOURCE, "source_url": "https://example.com/apply-today-sample", "match_score": 99, "date_posted": db.now_iso()}, path)
+            rows = db.apply_today(path=path, include_sample=False)
+            rows_with_sample = db.apply_today(path=path, include_sample=True)
+
+        self.assertEqual(len(rows), 5)
+        self.assertNotIn(db.SAMPLE_JOB_SOURCE, {job["source"] for job in rows})
+        self.assertIn(db.SAMPLE_JOB_SOURCE, {job["source"] for job in rows_with_sample})
+
+    def test_apply_today_excludes_terminal_statuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "title": "Keep Me", "source_url": "https://example.com/keep-apply", "match_score": 82, "date_posted": db.now_iso()}, path)
+            for status in ["applied", "skipped", "rejected"]:
+                db.insert_job({**self.job, "title": f"Drop {status}", "source_url": f"https://example.com/drop-{status}", "status": status, "match_score": 99, "date_posted": db.now_iso()}, path)
+            db.insert_job({**self.job, "title": "Drop Closed", "source_url": "https://example.com/drop-closed", "outcome_status": "closed", "match_score": 99, "date_posted": db.now_iso()}, path)
+            rows = db.apply_today(path=path)
+
+        self.assertEqual([job["title"] for job in rows], ["Keep Me"])
+
+    def test_apply_today_ranking_prefers_strong_fresh_over_weak_closing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            strong_id, _ = db.insert_job({**self.job, "title": "Strong Fresh", "source_url": "https://example.com/strong-fresh-apply", "match_score": 76, "score_band": "strong fit", "date_posted": db.now_iso()}, path)
+            weak_id, _ = db.insert_job({**self.job, "title": "Weak Closing", "source_url": "https://example.com/weak-closing-apply", "match_score": 42, "score_band": "weak/maybe", "source_closes_at": db.now_iso(), "date_posted": db.now_iso()}, path)
+            ordered = [job["id"] for job in db.apply_today(path=path)]
+
+        self.assertLess(ordered.index(strong_id), ordered.index(weak_id))
+
+    def test_apply_today_closing_soon_breaks_similar_score_tie(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            later_id, _ = db.insert_job({**self.job, "title": "Later Strong", "source_url": "https://example.com/later-strong", "match_score": 78, "score_band": "strong fit", "date_posted": db.now_iso()}, path)
+            soon_id, _ = db.insert_job({**self.job, "title": "Soon Strong", "source_url": "https://example.com/soon-strong", "match_score": 78, "score_band": "strong fit", "source_closes_at": db.now_iso(), "date_posted": db.now_iso()}, path)
+            ordered = [job["id"] for job in db.apply_today(path=path)]
+
+        self.assertLess(ordered.index(soon_id), ordered.index(later_id))
+
+    def test_apply_today_endpoint_uses_production_sample_filter(self):
+        with patch("backend.app.api.ensure_seeded"), patch("backend.app.api.api_env", return_value="production"), patch("backend.app.api.db.apply_today", return_value=[]) as mocked:
+            apply_today_endpoint()
+        self.assertFalse(mocked.call_args.kwargs["include_sample"])
+
+    def test_apply_today_frontend_route_exists(self):
+        text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
+        self.assertIn("Apply Today", text)
+        self.assertIn('/review/apply-today', text)
+        self.assertTrue(Path("frontend/app/apply-today/page.tsx").exists())
 
     def test_review_update_does_not_change_application_status(self):
         with tempfile.TemporaryDirectory() as tmp:

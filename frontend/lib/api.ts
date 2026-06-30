@@ -142,6 +142,25 @@ export type ReviewQueue = {
   applied_follow_up: Job[];
 };
 
+export type ApplyTodayJob = {
+  id: number;
+  title: string;
+  company: string;
+  source: string;
+  location: string;
+  match_score: number;
+  score_band?: string;
+  score_reason?: string;
+  source_posted_at?: string;
+  source_closes_at?: string;
+  close_days_remaining?: number | null;
+  freshness_bucket?: string;
+  apply_url: string;
+  packet_status: string;
+  review_status?: string;
+  recommendation_reason: string;
+};
+
 export type ApplicationBoard = {
   ready_to_apply: Job[];
   started: Job[];
@@ -378,6 +397,26 @@ function demoApi<T>(path: string, init?: RequestInit): T {
   const job = jobMatch ? demoJobs.find((row) => row.id === Number(jobMatch[1])) || demoJobs[0] : demoJobs[0];
   if (path === "/jobs") return demoJobs as T;
   if (path.startsWith("/review/queue")) return demoReviewQueue() as T;
+  if (path.startsWith("/review/apply-today")) {
+    return demoJobs.slice(0, 2).map((job) => ({
+      id: job.id,
+      title: job.title,
+      company: job.company,
+      source: job.source,
+      location: job.location,
+      match_score: job.match_score,
+      score_band: job.score_band,
+      score_reason: job.score_reason,
+      source_posted_at: job.source_posted_at,
+      source_closes_at: job.source_closes_at,
+      close_days_remaining: job.close_days_remaining,
+      freshness_bucket: job.freshness_bucket,
+      apply_url: job.apply_url,
+      packet_status: job.application_packet_dir || job.packet_generated_at ? "generated" : "not_generated",
+      review_status: job.review_status,
+      recommendation_reason: job.match_score >= 70 ? job.score_band || "Strong match score" : "Fresh posting",
+    })) as T;
+  }
   if (path === "/application/board") return demoApplicationBoard() as T;
   if (path === "/reports/latest") return demoReport() as T;
   if (path === "/stats/overview") return demoStats() as T;

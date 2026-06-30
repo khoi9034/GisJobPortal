@@ -212,6 +212,12 @@ def review_queue(include_stale: bool = False, include_sample: bool = False) -> d
     return db.review_queue(include_stale=include_stale, include_sample=should_include_sample(include_sample))
 
 
+@app.get("/review/apply-today")
+def apply_today(limit: int = 5, include_stale: bool = False, include_sample: bool = False) -> list[dict[str, Any]]:
+    ensure_seeded()
+    return db.apply_today(limit=limit, include_stale=include_stale, include_sample=should_include_sample(include_sample))
+
+
 @app.get("/application/board")
 def application_board(include_sample: bool = False) -> dict[str, list[dict[str, Any]]]:
     ensure_seeded()

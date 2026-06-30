@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, AiStatus, API_URL, ApplicationBoard, ApplicationPacket, DailyReport, Job, Source, Stats, dataModeLabel } from "../lib/api";
+import { api, AiStatus, API_URL, ApplicationBoard, ApplicationPacket, ApplyTodayJob, DailyReport, Job, Source, Stats, dataModeLabel } from "../lib/api";
 
-type View = "overview" | "review" | "applications" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
+type View = "overview" | "applyToday" | "review" | "applications" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 type FreshnessFilter = "active" | "fresh" | "last30" | "include_stale" | "closing" | "unknown";
 type ReviewFilters = {
   freshOnly: boolean;
@@ -16,6 +16,7 @@ type ReviewFilters = {
 
 const nav = [
   ["overview", "/", "Overview"],
+  ["applyToday", "/apply-today", "Apply Today"],
   ["review", "/daily-review", "Daily Review"],
   ["applications", "/applications", "Application Board"],
   ["new", "/new-jobs", "New Jobs"],
@@ -29,6 +30,7 @@ const nav = [
 
 const titles: Record<View, string> = {
   overview: "Overview",
+  applyToday: "Apply Today",
   new: "New Jobs",
   best: "Best Matches",
   saved: "Saved Jobs",
@@ -86,7 +88,7 @@ function isClosingSoon(job: Job) {
   return days !== null && days >= 0 && days <= CLOSING_SOON_DAYS;
 }
 
-function scoreBand(job: Job) {
+function scoreBand(job: { score_band?: string; match_score: number }) {
   if (job.score_band) return job.score_band;
   if (job.match_score >= 85) return "excellent fit";
   if (job.match_score >= 70) return "strong fit";
@@ -95,11 +97,11 @@ function scoreBand(job: Job) {
   return "low fit";
 }
 
-function isSampleJob(job: Job) {
+function isSampleJob(job: { source: string }) {
   return job.source === SAMPLE_JOB_SOURCE;
 }
 
-function SampleJobBadge({ job }: { job: Job }) {
+function SampleJobBadge({ job }: { job: { source: string } }) {
   return isSampleJob(job) ? <span className="chip warning">Demo sample job — not a live posting</span> : null;
 }
 
@@ -202,6 +204,7 @@ export default function DashboardPage({ view }: { view: View }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
+  const [applyTodayJobs, setApplyTodayJobs] = useState<ApplyTodayJob[]>([]);
   const [applicationBoard, setApplicationBoard] = useState<ApplicationBoard>(emptyApplicationBoard());
   const [report, setReport] = useState<DailyReport | null>(null);
   const [profile, setProfile] = useState<any>(null);
@@ -213,10 +216,11 @@ export default function DashboardPage({ view }: { view: View }) {
 
   async function load() {
     setLoaded(false);
-    const [jobRows, overview, sourceRows, boardRows, reportRow, profileRow, aiRow] = await Promise.allSettled([
+    const [jobRows, overview, sourceRows, applyTodayRows, boardRows, reportRow, profileRow, aiRow] = await Promise.allSettled([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
       api<Source[]>("/sources"),
+      api<ApplyTodayJob[]>("/review/apply-today"),
       api<ApplicationBoard>("/application/board"),
       api<DailyReport>("/reports/latest"),
       api<any>("/profile"),
@@ -226,6 +230,7 @@ export default function DashboardPage({ view }: { view: View }) {
     if (jobRows.status === "fulfilled") setJobs(jobRows.value); else failures.push(`/jobs: ${jobRows.reason}`);
     if (overview.status === "fulfilled") setStats(overview.value); else failures.push(`/stats/overview: ${overview.reason}`);
     if (sourceRows.status === "fulfilled") setSources(sourceRows.value); else failures.push(`/sources: ${sourceRows.reason}`);
+    if (applyTodayRows.status === "fulfilled") setApplyTodayJobs(applyTodayRows.value); else failures.push(`/review/apply-today: ${applyTodayRows.reason}`);
     if (boardRows.status === "fulfilled") setApplicationBoard(boardRows.value); else failures.push(`/application/board: ${boardRows.reason}`);
     if (reportRow.status === "fulfilled") setReport(reportRow.value); else failures.push(`/reports/latest: ${reportRow.reason}`);
     if (profileRow.status === "fulfilled") setProfile(profileRow.value); else failures.push(`/profile: ${profileRow.reason}`);
@@ -267,7 +272,7 @@ export default function DashboardPage({ view }: { view: View }) {
     await load();
   }
 
-  async function setReview(job: Job, review_status: string) {
+  async function setReview(job: Pick<Job, "id">, review_status: string) {
     await api<Job>(`/jobs/${job.id}/review`, {
       method: "PATCH",
       body: JSON.stringify({ review_status }),
@@ -275,7 +280,7 @@ export default function DashboardPage({ view }: { view: View }) {
     await load();
   }
 
-  async function patchApplication(job: Job, fields: Partial<Job>) {
+  async function patchApplication(job: Pick<Job, "id">, fields: Partial<Job>) {
     await api<Job>(`/jobs/${job.id}/application`, {
       method: "PATCH",
       body: JSON.stringify(fields),
@@ -283,12 +288,12 @@ export default function DashboardPage({ view }: { view: View }) {
     await load();
   }
 
-  async function markStarted(job: Job) {
+  async function markStarted(job: Pick<Job, "id">) {
     await api<Job>(`/jobs/${job.id}/mark-application-started`, { method: "POST" });
     await load();
   }
 
-  async function markApplied(job: Job) {
+  async function markApplied(job: Pick<Job, "id">) {
     await api<Job>(`/jobs/${job.id}/mark-applied`, { method: "POST" });
     await load();
   }
@@ -319,7 +324,7 @@ export default function DashboardPage({ view }: { view: View }) {
     await load();
   }
 
-  async function generatePacket(job: Job) {
+  async function generatePacket(job: Pick<Job, "id" | "title">) {
     const row = await api<ApplicationPacket>(`/jobs/${job.id}/generate-application-packet`, { method: "POST" });
     setMessage(`${job.title}: ${row.generation_mode === "pony_alpha" ? "Pony Alpha" : "template fallback"} packet generated.`);
     await load();
@@ -421,6 +426,24 @@ export default function DashboardPage({ view }: { view: View }) {
     );
   }
 
+  if (view === "applyToday") {
+    return (
+      <Shell view={view}>
+        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
+        <section className="settings-section">
+          <h3>Top 5 Jobs To Act On First</h3>
+          <p className="muted">Real live postings only by default. Review the packet before applying manually.</p>
+        </section>
+        <div className="jobs-grid">
+          {applyTodayJobs.map((job) => (
+            <ApplyTodayCard key={job.id} job={job} onReview={setReview} onStarted={markStarted} onApplied={markApplied} onGeneratePacket={generatePacket} />
+          ))}
+          {!applyTodayJobs.length && <p className="muted">{loaded ? "No priority jobs ready right now." : "Loading priority jobs..."}</p>}
+        </div>
+      </Shell>
+    );
+  }
+
   if (view === "applications") {
     return (
       <Shell view={view}>
@@ -449,6 +472,7 @@ export default function DashboardPage({ view }: { view: View }) {
   return (
     <Shell view={view}>
       <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
+      {view === "overview" && <div className="toolbar"><Link className="button primary" href="/apply-today">View Apply Today</Link></div>}
       {view === "overview" && <DailyDigest report={report} />}
       {stats && (
         <div className="stats">
@@ -524,6 +548,53 @@ function ApplicationGroup({
         {!jobs.length && <p className="muted">No jobs in this group.</p>}
       </div>
     </section>
+  );
+}
+
+function ApplyTodayCard({
+  job,
+  onReview,
+  onStarted,
+  onApplied,
+  onGeneratePacket,
+}: {
+  job: ApplyTodayJob;
+  onReview: (job: Pick<Job, "id">, reviewStatus: string) => void;
+  onStarted: (job: Pick<Job, "id">) => void;
+  onApplied: (job: Pick<Job, "id">) => void;
+  onGeneratePacket: (job: Pick<Job, "id" | "title">) => void;
+}) {
+  return (
+    <article className="job-card">
+      <div className="job-head">
+        <div>
+          <h3>{job.title}</h3>
+          <p className="muted">{job.company} | {job.location} | {job.source}</p>
+          <p className="muted">
+            Posted {job.source_posted_at || "unknown"}
+            {job.source_closes_at ? ` | closes ${job.source_closes_at}` : ""}
+            {job.close_days_remaining !== null && job.close_days_remaining !== undefined ? ` | ${job.close_days_remaining} days left` : ""}
+          </p>
+          <p className="muted">{job.recommendation_reason}</p>
+        </div>
+        <div className="score"><strong>{job.match_score}</strong><span>{scoreBand(job)}</span></div>
+      </div>
+      <div className="chips">
+        <span className="chip green">{scoreBand(job)}</span>
+        <span className="chip">{job.freshness_bucket || "unknown"}</span>
+        <span className="chip">{job.packet_status}</span>
+        <span className="chip">{job.review_status || "unreviewed"}</span>
+        <SampleJobBadge job={job} />
+      </div>
+      <div className="actions">
+        <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
+        <button className="button warning" onClick={() => onGeneratePacket(job)}>Generate Packet</button>
+        <a className="button primary" href={job.apply_url} target="_blank">Open Apply Link</a>
+        <button className="button" onClick={() => onReview(job, "interested")}>Mark Interested</button>
+        <button className="button" onClick={() => onStarted(job)}>Mark Started</button>
+        <button className="button" onClick={() => onApplied(job)}>Mark Applied</button>
+      </div>
+    </article>
   );
 }
 

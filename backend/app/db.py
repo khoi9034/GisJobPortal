@@ -772,6 +772,67 @@ def review_queue(path: Path | str = DB_PATH, include_stale: bool = False, includ
     }
 
 
+def apply_today_reason(job: dict[str, Any]) -> str:
+    days = close_days(job)
+    if days is not None and 0 <= days <= 7:
+        return f"Closing in {days} days"
+    if int(job.get("match_score") or 0) >= 70:
+        return job.get("score_band") or "Strong match score"
+    if (job.get("posting_age_days") or 99) <= 14:
+        return "Fresh posting"
+    return "Worth reviewing"
+
+
+def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool = False, include_sample: bool = True) -> list[dict[str, Any]]:
+    excluded_statuses = {"applied", "skipped", "rejected"}
+    excluded_outcomes = {"applied", "rejected", "closed", "withdrawn"}
+    rows = [
+        job
+        for job in list_jobs(path=path, include_sample=include_sample)
+        if job.get("status") not in excluded_statuses
+        and job.get("outcome_status") not in excluded_outcomes
+        and not job.get("is_closed_or_missing")
+        and (include_stale or not job.get("is_stale"))
+    ]
+
+    def rank(job: dict[str, Any]) -> tuple[Any, ...]:
+        days = close_days(job)
+        band = (job.get("score_band") or "").lower()
+        strong_band = 0 if band in {"excellent fit", "strong fit"} or int(job.get("match_score") or 0) >= 70 else 1
+        closing = days if days is not None and days >= 0 else 9999
+        freshness = int(job.get("posting_age_days") if job.get("posting_age_days") is not None else 9999)
+        confidence = 0 if job.get("freshness_confidence") == "source_posted_date" else 1
+        first_seen = job.get("first_seen_at") or job.get("date_found") or ""
+        first_seen_date = parse_date(first_seen)
+        return (strong_band, -int(job.get("match_score") or 0), closing, freshness, confidence, -first_seen_date.toordinal() if first_seen_date else 0)
+
+    selected = sorted(rows, key=rank)[: max(1, min(int(limit or 5), 25))]
+    fields = {
+        "id",
+        "title",
+        "company",
+        "source",
+        "location",
+        "match_score",
+        "score_band",
+        "score_reason",
+        "source_posted_at",
+        "source_closes_at",
+        "close_days_remaining",
+        "freshness_bucket",
+        "apply_url",
+        "review_status",
+    }
+    return [
+        {
+            **{key: job.get(key) for key in fields},
+            "packet_status": "generated" if job.get("application_packet_dir") or job.get("packet_generated_at") else "not_generated",
+            "recommendation_reason": apply_today_reason(job),
+        }
+        for job in selected
+    ]
+
+
 def review_counts(path: Path | str = DB_PATH, include_sample: bool = True) -> dict[str, int]:
     queue = review_queue(path, include_sample=include_sample)
     board = application_board(path, include_sample=include_sample)
