@@ -52,3 +52,20 @@ freshness:
   fresh_days: 14
   closing_soon_days: 7
   unknown_date_allowed: true
+experience:
+  ideal_max_years: 3
+  review_max_years: 5
+  hard_exclude_over_years: 5
+  seniority_terms:
+    - senior
+    - lead
+    - principal
+    - manager
+    - director
+    - sme
+    - subject matter expert
+  certification_blockers:
+    - PE required
+    - Professional Engineer required
+    - AICP required
+    - PMP required

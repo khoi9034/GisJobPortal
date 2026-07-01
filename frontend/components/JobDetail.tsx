@@ -41,6 +41,17 @@ function sourceAttribution(job: Job) {
   );
 }
 
+function experienceChips(job: Job) {
+  const fit = job.experience_fit || "unknown";
+  const label = fit === "entry" ? "Entry fit" : fit === "early_career" ? "Early-career fit" : fit === "stretch" ? "Stretch 4-5 years" : fit === "too_senior" ? "Too senior" : fit === "over_cap" ? "Over experience cap" : "";
+  return (
+    <>
+      {job.required_experience_years !== null && job.required_experience_years !== undefined && <span className="chip">Requires {job.required_experience_years} years</span>}
+      {label && <span className={fit === "over_cap" || fit === "too_senior" ? "chip red" : fit === "stretch" ? "chip warning" : "chip green"}>{label}</span>}
+    </>
+  );
+}
+
 export default function JobDetail({ id }: { id: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [packet, setPacket] = useState<ApplicationPacket | null>(null);
@@ -190,6 +201,7 @@ export default function JobDetail({ id }: { id: string }) {
             {sampleJobBadge(job)}
             {sourceAttribution(job)}
             {!jobLink(job) && <span className="chip warning">No apply link available from source.</span>}
+            {experienceChips(job)}
             {job.is_stale && <span className="chip red">stale</span>}
             {isClosingSoon(job) && <span className="chip warning">closing soon</span>}
           </div>
@@ -239,6 +251,9 @@ export default function JobDetail({ id }: { id: string }) {
           <p><strong>Source URL:</strong> {job.source_url ? <a href={job.source_url} target="_blank">{job.source_url}</a> : "No source link available from source."}</p>
           <p><strong>Original source:</strong> {job.original_source || "unknown"}</p>
           <p><strong>Link status:</strong> {job.link_status || (job.apply_url ? "available" : job.source_url ? "source_only" : "missing")}</p>
+          <p><strong>Required experience:</strong> {job.required_experience_years ?? "not detected"}</p>
+          <p><strong>Experience fit:</strong> {job.experience_fit || "unknown"}</p>
+          {job.experience_blocker_reason && <p><strong>Experience evidence:</strong> {job.experience_blocker_reason}</p>}
           {job.apply_options_json?.length ? (
             <>
               <h3>Apply Options</h3>

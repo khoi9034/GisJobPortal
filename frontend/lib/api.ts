@@ -94,6 +94,11 @@ export type Job = {
   penalty_matches?: string[];
   score_reason?: string;
   score_band?: string;
+  required_experience_years?: number | null;
+  preferred_experience_years?: number | null;
+  experience_fit?: string;
+  experience_blocker_reason?: string;
+  seniority_flags_json?: Array<Record<string, unknown>>;
   recommended_resume_angle: string;
   application_packet_dir: string;
   packet_qa_status?: string;
@@ -245,6 +250,11 @@ export type ApplyTodayJob = {
   packet_status: string;
   packet_qa_status?: string;
   packet_qa_notes?: string[];
+  required_experience_years?: number | null;
+  preferred_experience_years?: number | null;
+  experience_fit?: string;
+  experience_blocker_reason?: string;
+  seniority_flags_json?: Array<Record<string, unknown>>;
   review_status?: string;
   application_submission_notes?: string;
   application_priority?: string;

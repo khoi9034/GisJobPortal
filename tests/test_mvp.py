@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_endpoint_timings, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, hosted_packet_smoke_test, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, resolve_apply_today_blockers, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_experience_fit, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_endpoint_timings, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, hosted_packet_smoke_test, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, resolve_apply_today_blockers, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -32,7 +32,7 @@ from backend.app.freshness import apply_freshness
 from backend.app.materials import format_material_context, generate_materials
 from backend.app.paths import admin_refresh_token, api_env, cors_origins, database_path, database_runtime_type, database_type, database_url, database_url_scheme
 from backend.app.profile import load_profile
-from backend.app.scoring import score_band, score_job
+from backend.app.scoring import analyze_experience, score_band, score_job
 from backend.app.sources import load_search_profiles, load_sources
 from backend.app.source_validation import validate_source
 
@@ -72,6 +72,55 @@ class MvpTests(unittest.TestCase):
         self.assertLess(senior["match_score"], junior["match_score"])
         self.assertIn("manager", senior["penalty_matches"])
         self.assertIn("7+ years", senior["penalty_matches"])
+
+    def test_experience_parser_detects_required_years(self):
+        cases = [
+            ("Ten (10) years' experience required.", 10),
+            ("10+ years of experience required.", 10),
+            ("minimum of 7 years of experience.", 7),
+            ("4-6 years of experience required.", 4),
+        ]
+        for text, years in cases:
+            with self.subTest(text=text):
+                self.assertEqual(analyze_experience({**self.job, "requirements": text})["required_experience_years"], years)
+
+    def test_preferred_experience_is_not_required(self):
+        parsed = analyze_experience({**self.job, "requirements": "Five years of experience preferred."})
+        self.assertIsNone(parsed["required_experience_years"])
+        self.assertEqual(parsed["preferred_experience_years"], 5)
+
+    def test_internship_recent_graduate_is_entry_fit(self):
+        parsed = analyze_experience({**self.job, "title": "GIS Intern", "description": "Recent graduate internship with ArcGIS."})
+        self.assertEqual(parsed["experience_fit"], "entry")
+
+    def test_sme_and_pe_create_hard_experience_flags(self):
+        job = {**self.job, "title": "SME - Geospatial Analyst", "requirements": "Ten (10) years' experience required. Industry-standard certification such as PE registration required."}
+        parsed = analyze_experience(job)
+        self.assertEqual(parsed["required_experience_years"], 10)
+        self.assertEqual(parsed["experience_fit"], "too_senior")
+        self.assertTrue(any(flag["term"] == "sme" for flag in parsed["seniority_flags_json"]))
+        self.assertTrue(any(flag["type"] == "certification" for flag in parsed["seniority_flags_json"]))
+
+    def test_ten_year_sme_job_cannot_score_100(self):
+        scored = score_job({**self.job, "title": "SME - Geospatial Analyst", "description": self.job["description"] + " ArcGIS Enterprise geospatial spatial analysis Python SQL.", "requirements": "Ten (10) years' experience required. Industry-standard certification such as PE registration required."}, self.profile)
+        self.assertLessEqual(scored["match_score"], 25)
+        self.assertEqual(scored["experience_fit"], "too_senior")
+
+    def test_stale_stored_high_score_is_capped_on_read(self):
+        row = db.row_to_job({**self.job, "match_score": 100, "score_band": "excellent fit", "title": "SME - Geospatial Analyst", "requirements": "Ten (10) years' experience required."})
+        self.assertLessEqual(row["match_score"], 25)
+        self.assertEqual(row["experience_fit"], "too_senior")
+
+    def test_apply_today_excludes_over_cap_experience(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            scored = score_job({**self.job, "title": "SME - Geospatial Analyst", "requirements": "Ten (10) years' experience required."}, self.profile)
+            db.insert_job({**self.job, **scored, "status": "ready_to_apply", "application_packet_files_json": {"cover_letter.md": "ok"}, "packet_qa_status": "passed"}, path)
+            self.assertEqual(db.apply_today(path=path), [])
+
+    def test_entry_level_can_be_apply_now_when_ready(self):
+        job = {**self.job, **score_job({**self.job, "requirements": "0-2 years of GIS experience required."}, self.profile), "status": "ready_to_apply", "application_packet_files_json": {"cover_letter.md": "ok"}, "packet_qa_status": "passed"}
+        self.assertEqual(db.application_decision(job)["application_priority"], "apply_now")
 
     def test_score_band_labels(self):
         self.assertEqual(score_band(90), "excellent fit")
@@ -1528,13 +1577,21 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(review["application_priority"], "review_first")
         self.assertEqual(review["blockers"][0]["blocker_type"], "transcript")
         self.assertTrue(review["blockers"][0]["evidence_text"])
-        self.assertEqual(senior["application_priority"], "maybe")
+        self.assertEqual(senior["application_priority"], "skip")
         self.assertEqual(principal["application_priority"], "skip")
         self.assertEqual(weak["application_priority"], "skip")
 
     def test_blockers_require_evidence_text(self):
         blockers = db.resolved_blockers({**self.job, "match_score": 90, "status": "ready_to_apply", "description": "Generic GIS role."})
         self.assertEqual(blockers, [])
+
+    def test_experience_blockers_include_evidence(self):
+        blockers = db.resolved_blockers({**self.job, "title": "SME - Geospatial Analyst", "requirements": "Ten (10) years' experience required. Industry-standard certification such as PE registration required."})
+        types = {blocker["blocker_type"] for blocker in blockers}
+        self.assertIn("experience_over_cap", types)
+        self.assertIn("too_senior", types)
+        self.assertIn("certification_required", types)
+        self.assertTrue(all(blocker["evidence_text"] for blocker in blockers if blocker["blocker_type"] in types))
 
     def test_work_authorization_hard_blocker_only_when_explicit(self):
         explicit = db.resolved_blockers({**self.job, "description": "Applicants must be authorized to work in the United States."})
@@ -1831,6 +1888,19 @@ class MvpTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("Apply Today Decisions", text)
         self.assertIn("apply_now", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_analyze_experience_fit_script_runs_safely(self):
+        output = io.StringIO()
+        rows = [
+            {**self.job, **score_job(self.job, self.profile), "id": 1},
+            {**self.job, **score_job({**self.job, "title": "SME - Geospatial Analyst", "requirements": "Ten (10) years' experience required."}, self.profile), "id": 2, "title": "SME - Geospatial Analyst", "requirements": "Ten (10) years' experience required."},
+        ]
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.analyze_experience_fit.db.list_jobs", return_value=rows), redirect_stdout(output):
+            self.assertEqual(analyze_experience_fit.main(), 0)
+        text = output.getvalue()
+        self.assertIn("experience fit", text)
+        self.assertIn("high-scoring over-cap jobs", text)
         self.assertNotIn("do-not-print-me", text)
 
     def test_resolve_apply_today_blockers_script_runs_safely(self):

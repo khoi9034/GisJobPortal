@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .freshness import apply_freshness, freshness_rules, parse_date, today_utc
 from .paths import DB_PATH, database_type, postgres_connection_url
+from .scoring import analyze_experience, score_band
 
 VALID_STATUSES = {
     "new",
@@ -44,6 +45,7 @@ JSON_FIELDS = {
     "blocker_resolutions_json",
     "application_packet_files_json",
     "packet_qa_notes",
+    "seniority_flags_json",
 }
 
 JOB_COLUMNS = [
@@ -98,6 +100,11 @@ JOB_COLUMNS = [
     "penalty_matches",
     "score_reason",
     "score_band",
+    "required_experience_years",
+    "preferred_experience_years",
+    "experience_fit",
+    "experience_blocker_reason",
+    "seniority_flags_json",
     "recommended_resume_angle",
     "application_packet_dir",
     "document_checklist",
@@ -253,6 +260,11 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 penalty_matches TEXT DEFAULT '[]',
                 score_reason TEXT DEFAULT '',
                 score_band TEXT DEFAULT '',
+                required_experience_years INTEGER,
+                preferred_experience_years INTEGER,
+                experience_fit TEXT DEFAULT 'unknown',
+                experience_blocker_reason TEXT DEFAULT '',
+                seniority_flags_json TEXT DEFAULT '[]',
                 recommended_resume_angle TEXT DEFAULT '',
                 application_packet_dir TEXT DEFAULT '',
                 document_checklist TEXT DEFAULT '{}',
@@ -407,6 +419,11 @@ def ensure_job_columns(conn: Any) -> None:
         "penalty_matches": "TEXT DEFAULT '[]'",
         "score_reason": "TEXT DEFAULT ''",
         "score_band": "TEXT DEFAULT ''",
+        "required_experience_years": "INTEGER",
+        "preferred_experience_years": "INTEGER",
+        "experience_fit": "TEXT DEFAULT 'unknown'",
+        "experience_blocker_reason": "TEXT DEFAULT ''",
+        "seniority_flags_json": "TEXT DEFAULT '[]'",
         "application_url_opened_at": "TEXT DEFAULT ''",
         "application_started_at": "TEXT DEFAULT ''",
         "applied_at": "TEXT DEFAULT ''",
@@ -488,7 +505,30 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
     for field in ("is_stale", "is_closed_or_missing", "needs_packet", "manual_apply_override"):
         job[field] = bool(job.get(field))
     job["apply_is_direct"] = bool(job.get("apply_is_direct"))
+    parsed_experience = analyze_experience(job)
+    for field, value in parsed_experience.items():
+        if job.get(field) in (None, "", [], "unknown"):
+            job[field] = value
+    cap = experience_score_cap(job)
+    if cap is not None and int(job.get("match_score") or 0) > cap:
+        job["match_score"] = cap
+        job["score_band"] = score_band(cap)
+        suffix = f"Experience cap applied: {job.get('experience_fit') or 'over target'}."
+        job["score_reason"] = f"{job.get('score_reason') or ''} {suffix}".strip()
     return job
+
+
+def experience_score_cap(job: dict[str, Any]) -> int | None:
+    years = job.get("required_experience_years") or 0
+    fit = job.get("experience_fit") or "unknown"
+    certification = any(flag.get("type") == "certification" for flag in job.get("seniority_flags_json") or [])
+    if certification or fit == "too_senior" or int(years or 0) >= 10:
+        return 25
+    if int(years or 0) >= 7:
+        return 40
+    if int(years or 0) > 5:
+        return 54
+    return None
 
 
 def priority_for_job(job: dict[str, Any]) -> str:
@@ -915,7 +955,7 @@ def review_queue(path: Path | str = DB_PATH, include_stale: bool = False, includ
     rows = [job for job in list_jobs(path=path, include_sample=include_sample) if active_for_review(job, include_stale)]
     return {
         "new_today": [job for job in rows if unreviewed(job) and (job.get("first_seen_at") or job.get("date_found")) == today],
-        "fresh_high_match": [job for job in rows if unreviewed(job) and int(job.get("match_score") or 0) >= 70 and not job.get("is_stale")],
+        "fresh_high_match": [job for job in rows if unreviewed(job) and int(job.get("match_score") or 0) >= 70 and not job.get("is_stale") and experience_allowed_for_apply_today(job)],
         "closing_soon": [job for job in rows if (close_days(job) is not None and 0 <= close_days(job) <= 7) and job.get("status") not in {"applied", "skipped"}],
         "needs_review": [job for job in rows if unreviewed(job)],
         "packet_ready": [job for job in rows if job.get("status") in {"materials_generated", "ready_to_apply"}],
@@ -982,6 +1022,18 @@ def blocker_evidence(job: dict[str, Any]) -> list[dict[str, Any]]:
         "metadata": " ".join(str(job.get(key) or "") for key in ["work_authorization_note", "relocation_required", "language_requirement"]),
     }
     blockers: list[dict[str, Any]] = []
+    experience = experience_for_job(job)
+    years = experience.get("required_experience_years")
+    if years and int(years) > 5:
+        blockers.append({"blocker_type": "experience_over_cap", "severity": "hard_blocker", "label": "Experience over cap", "evidence_text": experience.get("experience_blocker_reason") or f"{years} years required", "source_field": "requirements", "resolved": False, "resolution_note": ""})
+    elif years and int(years) >= 4:
+        blockers.append({"blocker_type": "experience_stretch", "severity": "review_needed", "label": "Experience stretch", "evidence_text": experience.get("experience_blocker_reason") or f"{years} years required", "source_field": "requirements", "resolved": False, "resolution_note": ""})
+    if experience.get("experience_fit") == "too_senior":
+        evidence = experience.get("experience_blocker_reason") or next((flag.get("evidence") for flag in experience.get("seniority_flags_json") or [] if flag.get("type") == "seniority"), "")
+        blockers.append({"blocker_type": "too_senior", "severity": "hard_blocker", "label": "Too senior", "evidence_text": evidence or "senior/SME requirement detected", "source_field": "title", "resolved": False, "resolution_note": ""})
+    for flag in experience.get("seniority_flags_json") or []:
+        if flag.get("type") == "certification":
+            blockers.append({"blocker_type": "certification_required", "severity": "hard_blocker", "label": "Certification required", "evidence_text": flag.get("evidence") or flag.get("term") or "certification required", "source_field": flag.get("source_field") or "requirements", "resolved": False, "resolution_note": ""})
     for blocker_type, severity, preferred_field, label, phrases in BLOCKER_RULES:
         for source_field in [preferred_field, "requirements", "description", "metadata"]:
             text = fields.get(source_field, "")
@@ -996,6 +1048,19 @@ def blocker_evidence(job: dict[str, Any]) -> list[dict[str, Any]]:
     if senior := next((evidence_for(title, phrase) for phrase in ["principal", "director", "manager"] if evidence_for(title, phrase)), ""):
         blockers.append({"blocker_type": "seniority", "severity": "hard_blocker", "label": "Seniority", "evidence_text": senior, "source_field": "title", "resolved": False, "resolution_note": ""})
     return blockers
+
+
+def experience_for_job(job: dict[str, Any]) -> dict[str, Any]:
+    parsed = analyze_experience(job)
+    stored_fit = job.get("experience_fit")
+    return {
+        **parsed,
+        "required_experience_years": job.get("required_experience_years") if job.get("required_experience_years") is not None else parsed["required_experience_years"],
+        "preferred_experience_years": job.get("preferred_experience_years") if job.get("preferred_experience_years") is not None else parsed["preferred_experience_years"],
+        "experience_fit": stored_fit if stored_fit and stored_fit != "unknown" else parsed["experience_fit"],
+        "experience_blocker_reason": job.get("experience_blocker_reason") or parsed["experience_blocker_reason"],
+        "seniority_flags_json": job.get("seniority_flags_json") or parsed["seniority_flags_json"],
+    }
 
 
 def resolved_blockers(job: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1029,8 +1094,9 @@ def application_decision(job: dict[str, Any]) -> dict[str, Any]:
         blocker_labels.append("packet not QA ready")
     manual_override = bool(job.get("manual_apply_override") and job.get("manual_apply_override_reason"))
     hard_seniority = any(blocker["blocker_type"] == "seniority" for blocker in hard)
+    hard_experience = any(blocker["blocker_type"] in {"experience_over_cap", "too_senior", "certification_required"} for blocker in hard)
     review_seniority = any(blocker["blocker_type"] == "seniority" for blocker in review)
-    if score < 55 or hard_seniority:
+    if score < 55 or hard_seniority or hard_experience:
         priority = "skip"
     elif score < 70 or review_seniority:
         priority = "maybe"
@@ -1075,6 +1141,7 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         and job.get("outcome_status") not in excluded_outcomes
         and not job.get("is_closed_or_missing")
         and (include_stale or not job.get("is_stale"))
+        and experience_allowed_for_apply_today(job)
         and int(job.get("match_score") or 0) >= 55
         and not (broad_api_job(job) and not (job.get("apply_url") or job.get("source_url")))
     ]
@@ -1114,16 +1181,33 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         "document_checklist",
         "packet_qa_status",
         "packet_qa_notes",
+        "required_experience_years",
+        "preferred_experience_years",
+        "experience_fit",
+        "experience_blocker_reason",
+        "seniority_flags_json",
     }
-    return [
-        {
+    rows = []
+    for job in selected:
+        experience = experience_for_job(job)
+        rows.append({
             **{key: job.get(key) for key in fields},
+            **experience,
             "packet_status": packet_status_for_job(job),
             "recommendation_reason": apply_today_reason(job),
             **application_decision(job),
-        }
-        for job in selected
-    ]
+        })
+    return rows
+
+
+def experience_allowed_for_apply_today(job: dict[str, Any]) -> bool:
+    experience = experience_for_job(job)
+    years = experience.get("required_experience_years")
+    if years and int(years) > 5:
+        return False
+    if experience.get("experience_fit") in {"over_cap", "too_senior"}:
+        return False
+    return not any(flag.get("type") == "certification" for flag in experience.get("seniority_flags_json") or [])
 
 
 def review_counts(path: Path | str = DB_PATH, include_sample: bool = True) -> dict[str, int]:

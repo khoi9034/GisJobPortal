@@ -116,6 +116,17 @@ function LinkNotice({ job }: { job: Pick<Job, "apply_url" | "source_url" | "link
   return <span className="chip warning">No apply link available from source.</span>;
 }
 
+function ExperienceChips({ job }: { job: Pick<Job, "required_experience_years" | "experience_fit"> | Pick<ApplyTodayJob, "required_experience_years" | "experience_fit"> }) {
+  const fit = job.experience_fit || "unknown";
+  const label = fit === "entry" ? "Entry fit" : fit === "early_career" ? "Early-career fit" : fit === "stretch" ? "Stretch 4-5 years" : fit === "too_senior" ? "Too senior" : fit === "over_cap" ? "Over experience cap" : "";
+  return (
+    <>
+      {job.required_experience_years !== null && job.required_experience_years !== undefined && <span className="chip">Requires {job.required_experience_years} years</span>}
+      {label && <span className={fit === "over_cap" || fit === "too_senior" ? "chip red" : fit === "stretch" ? "chip warning" : "chip green"}>{label}</span>}
+    </>
+  );
+}
+
 function SourceAttribution({ job }: { job: Pick<Job, "source" | "original_source" | "attribution_note"> | Pick<ApplyTodayJob, "source" | "original_source" | "attribution_note"> }) {
   const isJsearch = /jsearch|rapidapi/i.test(`${job.source} ${job.attribution_note || ""}`);
   return (
@@ -773,6 +784,7 @@ function SummaryJobCard({ job }: { job: ApplyTodayJob }) {
         <span className="chip">{job.freshness_bucket || "unknown"}</span>
         <SourceAttribution job={job} />
         <LinkNotice job={job} />
+        <ExperienceChips job={job} />
       </div>
       <div className="actions">
         <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
@@ -836,6 +848,7 @@ function ApplyTodayCard({
         <SampleJobBadge job={job} />
         <SourceAttribution job={job} />
         <LinkNotice job={job} />
+        <ExperienceChips job={job} />
       </div>
       <Blockers job={job} onResolveBlocker={onResolveBlocker} onNoteBlocker={onNoteBlocker} />
       <div className="actions">
@@ -941,6 +954,7 @@ function ApplicationJobCard({
         <SampleJobBadge job={job} />
         <SourceAttribution job={job} />
         <LinkNotice job={job} />
+        <ExperienceChips job={job} />
       </div>
       <div className="actions">
         <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
@@ -1088,6 +1102,7 @@ function ReviewJobCard({
         <SampleJobBadge job={job} />
         <SourceAttribution job={job} />
         <LinkNotice job={job} />
+        <ExperienceChips job={job} />
         <FreshnessChips job={job} />
         {job.fit_reasons?.[0] && <span className="chip">{job.fit_reasons[0]}</span>}
       </div>
@@ -1189,6 +1204,7 @@ function JobCard({
         <SampleJobBadge job={job} />
         <SourceAttribution job={job} />
         <LinkNotice job={job} />
+        <ExperienceChips job={job} />
         <FreshnessChips job={job} />
         {(job.fit_reasons || []).slice(0, 3).map((reason) => <span className="chip" key={reason}>{reason}</span>)}
         {(job.missing_skills || []).slice(0, 3).map((skill) => <span className="chip red" key={skill}>{skill}</span>)}

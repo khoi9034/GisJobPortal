@@ -54,6 +54,22 @@ PENALTY_KEYWORDS = [
     "director",
 ]
 
+NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+SENIORITY_TERMS = ["senior", "lead", "principal", "manager", "director", "sme", "subject matter expert"]
+CERTIFICATION_BLOCKERS = ["PE required", "Professional Engineer required", "AICP required", "PMP required", "PE registration"]
+
 TITLE_STRONG_KEYWORDS = [
     "gis analyst",
     "geospatial analyst",
@@ -164,6 +180,98 @@ def find_matches(text: str, keywords: list[str]) -> list[str]:
     return matches
 
 
+def _num(value: str) -> int | None:
+    lowered = value.lower()
+    match = re.search(r"\d+", lowered)
+    if match:
+        return int(match.group())
+    return NUMBER_WORDS.get(lowered.strip())
+
+
+def _experience_mentions(text: str, source_field: str) -> list[dict[str, Any]]:
+    token = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s*\(\s*\d+\s*\))?"
+    mentions = []
+    for chunk in re.split(r"[\n.;•]+", text):
+        if "year" not in chunk.lower() or ("experience" not in chunk.lower() and source_field != "metadata"):
+            continue
+        match = re.search(rf"\b(?P<first>{token})\s*(?:\+|plus)?(?:\s*(?:-|to)\s*(?P<second>{token}))?\s+years?\b", chunk, re.IGNORECASE)
+        if not match:
+            continue
+        years = _num(match.group("first"))
+        if years is None:
+            continue
+        lowered = chunk.lower()
+        required = not any(word in lowered for word in ["preferred", "nice to have", "desired", "bonus", "plus"])
+        if any(word in lowered for word in ["required", "minimum", "at least", "must", "shall", "requires", "requirement"]):
+            required = True
+        mentions.append({"years": years, "required": required, "evidence": chunk.strip()[:240], "source_field": source_field})
+    return mentions
+
+
+def analyze_experience(job: dict[str, Any]) -> dict[str, Any]:
+    title = str(job.get("title") or "")
+    metadata_years = _num(str(job.get("required_experience_years") or ""))
+    fields = {
+        "title": title,
+        "description": str(job.get("description") or ""),
+        "requirements": str(job.get("requirements") or ""),
+        "metadata": str(job.get("required_experience_years") or ""),
+    }
+    mentions = [mention for field, text in fields.items() for mention in _experience_mentions(text, field)]
+    if metadata_years is not None:
+        mentions.append({"years": metadata_years, "required": True, "evidence": f"required_experience_years: {metadata_years}", "source_field": "metadata"})
+    required = [mention for mention in mentions if mention["required"]]
+    preferred = [mention for mention in mentions if not mention["required"]]
+    required_years = max((mention["years"] for mention in required), default=None)
+    preferred_years = max((mention["years"] for mention in preferred), default=None)
+    entry_language = bool(find_matches(" ".join(fields.values()).lower(), ENTRY_KEYWORDS))
+    flags = []
+    for term in SENIORITY_TERMS:
+        source_field = "title" if re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", title, re.IGNORECASE) else ""
+        evidence = title if source_field else evidence_for_any(fields, term) if term in {"sme", "subject matter expert"} else ""
+        if evidence:
+            flags.append({"term": term, "type": "seniority", "evidence": evidence, "source_field": source_field or "description"})
+    for term in CERTIFICATION_BLOCKERS:
+        evidence = evidence_for_any(fields, term)
+        if evidence:
+            flags.append({"term": term, "type": "certification", "evidence": evidence, "source_field": "requirements"})
+    hard_seniority = bool(flags) and not entry_language
+    if hard_seniority or (required_years or 0) >= 10:
+        fit = "too_senior"
+    elif required_years and required_years > 5:
+        fit = "over_cap"
+    elif required_years and required_years >= 4:
+        fit = "stretch"
+    elif required_years is not None:
+        fit = "early_career" if required_years >= 3 else "entry"
+    elif entry_language:
+        fit = "entry"
+    else:
+        fit = "unknown"
+    reason = ""
+    evidence = max(required, key=lambda item: item["years"])["evidence"] if required else ""
+    if fit in {"over_cap", "too_senior", "stretch"}:
+        reason = evidence or (flags[0]["evidence"] if flags else "")
+    return {
+        "required_experience_years": required_years,
+        "preferred_experience_years": preferred_years,
+        "experience_fit": fit,
+        "experience_blocker_reason": reason,
+        "seniority_flags_json": flags,
+    }
+
+
+def evidence_for_any(fields: dict[str, str], phrase: str) -> str:
+    for text in fields.values():
+        match = re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", text, re.IGNORECASE)
+        if match:
+            start = max(text.rfind(".", 0, match.start()), text.rfind("\n", 0, match.start()))
+            end_candidates = [index for index in [text.find(".", match.end()), text.find("\n", match.end())] if index != -1]
+            end = min(end_candidates) if end_candidates else min(len(text), match.end() + 160)
+            return text[start + 1:end + 1].strip()[:240]
+    return ""
+
+
 def title_matches(title: str) -> list[str]:
     title_text = title.lower()
     return [keyword for keyword in TITLE_STRONG_KEYWORDS if keyword in title_text]
@@ -218,6 +326,7 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         breakdown[category] = score
         keyword_matches.extend(matches)
 
+    experience = analyze_experience(job)
     penalties = find_penalties(job, text)
     if breakdown["entry_level_fit"] and not penalties:
         breakdown["entry_level_fit"] = CATEGORY_WEIGHTS["entry_level_fit"]
@@ -226,6 +335,8 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     breakdown["entry_pathways_boost"] = 12 if entry_hits and (title_hits or breakdown["gis_relevance"] >= 9 or breakdown["planning_relevance"] >= 8) else 0
     seniority_penalty = min(35, len(penalties) * 12)
     breakdown["seniority_penalty"] = -seniority_penalty
+    experience_fit = experience["experience_fit"]
+    breakdown["experience_fit_penalty"] = -35 if experience_fit == "too_senior" else -30 if experience_fit == "over_cap" else -10 if experience_fit == "stretch" else 6 if experience_fit in {"entry", "early_career"} else 0
     breakdown["freshness"] = freshness_score(job)
     sea_hits = find_matches(text, SEA_LOCATION_KEYWORDS)
     is_gis_or_planning = bool(title_hits or breakdown["gis_relevance"] >= 9 or breakdown["planning_relevance"] >= 8)
@@ -238,6 +349,18 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     breakdown["work_authorization_language_penalty"] = -min(24, len(international_constraints) * 8)
 
     total = max(0, min(100, sum(breakdown.values())))
+    required_years = experience["required_experience_years"]
+    if required_years and required_years > 5:
+        total = min(total, 54)
+    if required_years and required_years >= 7:
+        total = min(total, 40)
+    if (required_years and required_years >= 10) or experience_fit == "too_senior":
+        total = min(total, 25)
+    if required_years and required_years > 5:
+        penalties.append(f"{required_years}+ years required")
+    if experience_fit in {"too_senior", "over_cap", "stretch"}:
+        penalties.append(experience_fit.replace("_", " "))
+    penalties.extend(flag["term"] for flag in experience["seniority_flags_json"])
     penalties = sorted(set(penalties + international_constraints), key=str.lower)
     positives = sorted(set(keyword_matches + title_hits + entry_hits + sea_hits + (["English"] if english_hit and sea_hits else [])), key=str.lower)
     missing = missing_qualifications(text, profile)
@@ -266,6 +389,10 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         fit_reasons.append("Seniority requirements may be above current target level")
     if international_constraints:
         fit_reasons.append("Work authorization, language, or relocation constraints need review")
+    if experience_fit in {"too_senior", "over_cap"}:
+        fit_reasons.append("Required experience is above the early-career target")
+    elif experience_fit == "stretch":
+        fit_reasons.append("Required experience is a 4-5 year stretch")
 
     if "parcel" in text or "zoning" in text or "land use" in text:
         resume_angle = "Lead with Cabarrus County GIS, parcels, zoning, public data, and Cabarrus FutureScape."
@@ -285,6 +412,8 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         reason_parts.append("Python/SQL/automation matched")
     if penalties:
         reason_parts.append("seniority or credential penalties applied")
+    if experience_fit in {"too_senior", "over_cap", "stretch"}:
+        reason_parts.append(f"experience fit: {experience_fit.replace('_', ' ')}")
     if sea_hits:
         reason_parts.append("SEA/APAC geography matched")
     if breakdown["freshness"] > 0:
@@ -304,4 +433,5 @@ def score_job(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         "fit_summary": " ".join(fit_reasons[:3]) if fit_reasons else "GIS-related role worth reviewing.",
         "missing_skills": missing,
         "recommended_resume_angle": resume_angle,
+        **experience,
     }
