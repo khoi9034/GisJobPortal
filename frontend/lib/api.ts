@@ -7,6 +7,13 @@ export function dataModeLabel() {
   return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(API_URL) ? "Local Backend" : "Live API";
 }
 
+function timeoutMs(path: string) {
+  if (path === "/dashboard/summary") return 15000;
+  if (path === "/jobs" || path.startsWith("/review/apply-today") || path === "/application/board") return 20000;
+  if (path === "/sources" || path === "/reports/latest") return 15000;
+  return 15000;
+}
+
 export type Job = {
   id: number;
   title: string;
@@ -646,7 +653,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (API_MODE === "demo") return demoApi<T>(path, init);
   if (!API_URL) throw new Error("API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.");
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), 15000);
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs(path));
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {

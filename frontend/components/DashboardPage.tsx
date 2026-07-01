@@ -244,7 +244,7 @@ export default function DashboardPage({ view }: { view: View }) {
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [loading, setLoading] = useState({ summary: true, jobs: true, sources: true, report: true });
+  const [loading, setLoading] = useState({ summary: true, jobs: true, sources: true, report: true, stats: true, applyToday: true, applicationBoard: true });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [summaryStatus, setSummaryStatus] = useState("Loading live summary...");
   const [freshness, setFreshness] = useState<FreshnessFilter>("active");
@@ -292,7 +292,7 @@ export default function DashboardPage({ view }: { view: View }) {
 
   async function loadDetails() {
     setLoaded(false);
-    setLoading((row) => ({ ...row, jobs: true, sources: true, report: true }));
+    setLoading((row) => ({ ...row, jobs: true, sources: true, report: true, stats: true, applyToday: true, applicationBoard: true }));
     const [jobRows, overview, sourceRows, applyTodayRows, boardRows, reportRow, profileRow, aiRow] = await Promise.allSettled([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
@@ -317,8 +317,10 @@ export default function DashboardPage({ view }: { view: View }) {
       for (const key of ["jobs", "stats", "sources", "applyToday", "applicationBoard", "report", "profile", "ai"]) delete next[key];
       return { ...next, ...failures };
     });
-    if (Object.keys(failures).length) setMessage(`Live API connected, but ${Object.keys(failures).join(", ")} did not load.`);
-    setLoading((row) => ({ ...row, jobs: false, sources: false, report: false }));
+    if (failures.jobs) setMessage("Live API connected. Full job list is still loading or unavailable; showing summary/top jobs.");
+    else if (Object.keys(failures).length) setMessage((current) => current.startsWith("Live API connected.") ? "" : current);
+    else setMessage((current) => current.startsWith("Live API connected.") ? "" : current);
+    setLoading((row) => ({ ...row, jobs: false, sources: false, report: false, stats: false, applyToday: false, applicationBoard: false }));
     setLoaded(true);
   }
 
@@ -338,13 +340,14 @@ export default function DashboardPage({ view }: { view: View }) {
     }
     load().catch((error) => {
       setMessage(error.message);
-      setSummaryStatus(dashboardSummary ? "Live API unavailable - showing cached data" : "Live API unavailable");
       setLoaded(true);
+      setLoading((row) => ({ ...row, summary: false, jobs: false, sources: false, report: false, stats: false, applyToday: false, applicationBoard: false }));
     });
   }, []);
 
   const visibleJobs = useMemo(() => filterJobs(jobs, view, freshness), [jobs, view, freshness]);
   const backendJobCount = dashboardSummary?.job_count ?? stats?.total ?? jobs.length;
+  const summaryFallbackJobs = dataModeLabel() === "Live API" && !visibleJobs.length && (loading.jobs || Boolean(errors.jobs)) ? dashboardSummary?.top_jobs || [] : [];
   const reviewQueue = useMemo(() => buildReviewQueue(jobs, reviewFilters.includeStale), [jobs, reviewFilters.includeStale]);
   const sourceCounts = useMemo(() => sourceSummary(sources), [sources]);
   const emailAlertSources = sources.filter((source) => source.coverage_tier === "big_board_email_alert");
@@ -357,6 +360,12 @@ export default function DashboardPage({ view }: { view: View }) {
       `Refresh complete: ${result.new_jobs_found} new, ${result.duplicates_skipped} duplicates skipped.`
     );
     await load();
+  }
+
+  async function retryLiveData() {
+    setMessage("Retrying live data...");
+    await loadDetails();
+    setMessage((current) => current === "Retrying live data..." ? "Live data retry complete." : current);
   }
 
   async function validateSources() {
@@ -480,7 +489,7 @@ export default function DashboardPage({ view }: { view: View }) {
   if (view === "settings") {
     return (
       <Shell view={view}>
-        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
+        <Header title={titles[view]} onRefresh={refreshJobs} onRetry={retryLiveData} message={message} meta={headerMeta} />
         <div className="detail-grid">
           <section className="settings-section">
             <h3>Candidate Profile</h3>
@@ -517,7 +526,7 @@ export default function DashboardPage({ view }: { view: View }) {
               <div className="stat"><strong>{sourceCounts.sourceErrors}</strong><span>Source errors</span></div>
             </div>
             {loading.sources && !sources.length && <p className="muted">Loading sources...</p>}
-            {errors.sources && <p className="muted">Sources unavailable. Summary data is still shown.</p>}
+            {errors.sources && <p className="muted">Sources list unavailable. Summary data is still shown.</p>}
             {sources.map((source) => (
               <p key={source.name}>
                 <strong>{source.name}</strong> <span className="chip">{source.type}</span> {source.coverage_tier && <span className="chip">{source.coverage_tier.replaceAll("_", " ")}</span>} {source.region_scope && <span className="chip">{source.region_scope.replaceAll("_", " ")}</span>} <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span>{source.requires_api_key && <span className={source.credentials_configured ? "chip green" : "chip warning"}>{source.credentials_configured ? "credentials present" : "credentials missing"}</span>}<br />
@@ -593,7 +602,7 @@ export default function DashboardPage({ view }: { view: View }) {
   if (view === "review") {
     return (
       <Shell view={view}>
-        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
+        <Header title={titles[view]} onRefresh={refreshJobs} onRetry={retryLiveData} message={message} meta={headerMeta} />
         <DailyDigest report={report} loading={loading.report && !report?.text} error={errors.report} />
         <ReviewFilterBar filters={reviewFilters} setFilters={setReviewFilters} />
         <ReviewGroup title="New Today" jobs={reviewFilterRows(reviewQueue.new_today, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
@@ -608,7 +617,7 @@ export default function DashboardPage({ view }: { view: View }) {
   if (view === "applyToday") {
     return (
       <Shell view={view}>
-        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
+        <Header title={titles[view]} onRefresh={refreshJobs} onRetry={retryLiveData} message={message} meta={headerMeta} />
         <section className="settings-section">
           <h3>Top 5 Jobs To Act On First</h3>
           <p className="muted">Real live postings only by default. Review the packet before applying manually.</p>
@@ -617,7 +626,8 @@ export default function DashboardPage({ view }: { view: View }) {
           {applyTodayJobs.map((job) => (
             <ApplyTodayCard key={job.id} job={job} onReview={setReview} onStarted={markStarted} onApplied={markApplied} onGeneratePacket={generatePacket} onNotes={addSubmissionNotes} onCopy={copy} onResolveBlocker={updateBlocker} onNoteBlocker={noteBlocker} onOverrideReady={overrideReady} />
           ))}
-          {!applyTodayJobs.length && <p className="muted">{loading.jobs ? "Loading priority jobs..." : "No priority jobs ready right now."}</p>}
+          {errors.applyToday && <p className="muted">Apply Today unavailable.</p>}
+          {!applyTodayJobs.length && <p className="muted">{loading.applyToday ? "Loading priority jobs..." : "No priority jobs ready right now."}</p>}
         </div>
       </Shell>
     );
@@ -626,7 +636,7 @@ export default function DashboardPage({ view }: { view: View }) {
   if (view === "applications") {
     return (
       <Shell view={view}>
-        <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
+        <Header title={titles[view]} onRefresh={refreshJobs} onRetry={retryLiveData} message={message} meta={headerMeta} />
         <section className="settings-section">
           <h3>Manual Apply Checklist</h3>
           <p className="muted">This portal prepares and tracks materials only. Submit applications manually outside the app.</p>
@@ -638,6 +648,7 @@ export default function DashboardPage({ view }: { view: View }) {
             <li>Paste/check answers, submit manually, record confirmation number, then mark applied</li>
           </ul>
         </section>
+        {errors.applicationBoard && <p className="muted">Application Board unavailable.</p>}
         <ApplicationGroup title="Ready to Apply" jobs={applicationBoard.ready_to_apply} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
         <ApplicationGroup title="Started" jobs={applicationBoard.started} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
         <ApplicationGroup title="Applied" jobs={applicationBoard.applied} onOpenApply={openApply} onStarted={markStarted} onApplied={markApplied} onFollowUp={setFollowUp} onFollowUpSent={markFollowUpSent} onNotes={addSubmissionNotes} onCopy={copy} />
@@ -650,7 +661,7 @@ export default function DashboardPage({ view }: { view: View }) {
 
   return (
     <Shell view={view}>
-      <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
+      <Header title={titles[view]} onRefresh={refreshJobs} onRetry={retryLiveData} message={message} meta={headerMeta} />
       {view === "overview" && <div className="toolbar"><Link className="button primary" href="/apply-today">View Apply Today</Link></div>}
       {view === "overview" && <DailyDigest report={report} loading={loading.report && !report?.text} error={errors.report} />}
       {stats && (
@@ -661,6 +672,7 @@ export default function DashboardPage({ view }: { view: View }) {
         <div className="stat"><strong>{stats.by_status.follow_up_needed || 0}</strong><span>Need follow-up</span></div>
         </div>
       )}
+      {errors.stats && <p className="muted">Stats overview unavailable. Summary counts are still shown.</p>}
       <div className="toolbar">
         <label className="muted" htmlFor="freshness-filter">Freshness</label>
         <select id="freshness-filter" value={freshness} onChange={(event) => setFreshness(event.target.value as FreshnessFilter)}>
@@ -672,6 +684,8 @@ export default function DashboardPage({ view }: { view: View }) {
           <option value="unknown">Unknown posted date</option>
         </select>
       </div>
+      {errors.jobs && <p className="muted">Full job list unavailable.</p>}
+      {summaryFallbackJobs.length > 0 && <p className="muted">Top jobs from dashboard summary</p>}
       <div className="jobs-grid">
         {visibleJobs.map((job) => (
           <JobCard
@@ -682,13 +696,18 @@ export default function DashboardPage({ view }: { view: View }) {
             onCopy={copy}
           />
         ))}
-        {!visibleJobs.length && (
+        {summaryFallbackJobs.map((job) => <SummaryJobCard job={job} key={`summary-${job.id}`} />)}
+        {!visibleJobs.length && !summaryFallbackJobs.length && (
           <p className="muted">
             {loading.jobs
-              ? "Loading job list..."
+              ? backendJobCount > 0
+                ? "Live API connected. Loading full job list..."
+                : "Loading job list..."
+              : errors.jobs && backendJobCount > 0
+              ? `Live API has ${backendJobCount} jobs. Full job list did not load yet.`
               : dataModeLabel() === "Live API" && backendJobCount > 0
               ? `Live API has ${backendJobCount} jobs, but none match this filter.`
-              : dataModeLabel() === "Live API"
+              : dataModeLabel() === "Live API" && backendJobCount === 0 && !errors.jobs
               ? "Live API connected, but no jobs have been imported yet."
               : "No jobs in this view yet."}
           </p>
@@ -729,6 +748,37 @@ function ApplicationGroup({
         {!jobs.length && <p className="muted">No jobs in this group.</p>}
       </div>
     </section>
+  );
+}
+
+function SummaryJobCard({ job }: { job: ApplyTodayJob }) {
+  const link = jobLink(job);
+  return (
+    <article className="job-card">
+      <div className="job-head">
+        <div>
+          <h3>{job.title}</h3>
+          <p className="muted">{job.company} | {job.location} | {job.source}</p>
+          <p className="muted">
+            Posted {job.source_posted_at || "unknown"}
+            {job.source_closes_at ? ` | closes ${job.source_closes_at}` : ""}
+            {job.close_days_remaining !== null && job.close_days_remaining !== undefined ? ` | ${job.close_days_remaining} days left` : ""}
+          </p>
+          <p className="muted">{job.recommendation_reason}</p>
+        </div>
+        <div className="score"><strong>{job.match_score}</strong><span>{scoreBand(job)}</span></div>
+      </div>
+      <div className="chips">
+        <span className="chip green">{scoreBand(job)}</span>
+        <span className="chip">{job.freshness_bucket || "unknown"}</span>
+        <SourceAttribution job={job} />
+        <LinkNotice job={job} />
+      </div>
+      <div className="actions">
+        <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
+        {link ? <a className="button primary" href={link} target="_blank">Open Apply Link</a> : null}
+      </div>
+    </article>
   );
 }
 
@@ -931,11 +981,11 @@ function reportTimestamp(report: DailyReport | null) {
 
 function DailyDigest({ report, loading, error }: { report: DailyReport | null; loading: boolean; error?: string }) {
   const summary = report?.summary || {};
-  const text = error ? "Report unavailable." : loading ? "Loading latest report..." : report?.text || (dataModeLabel() === "Live API" ? "No hosted report yet. Live stats and review queue counts are still available." : "No daily review report has been generated yet.");
+  const text = error ? "Latest report unavailable." : loading ? "Loading latest report..." : report?.text || (dataModeLabel() === "Live API" ? "No hosted report yet. Live stats and review queue counts are still available." : "No daily review report has been generated yet.");
   return (
     <section className="settings-section">
       <h3>Latest Daily Digest</h3>
-      <p className="muted">Last refresh: {loading ? "loading" : reportTimestamp(report)}</p>
+      <p className="muted">Last refresh: {error ? "report unavailable" : loading ? "loading" : reportTimestamp(report)}</p>
       <div className="stats">
         <div className="stat"><strong>{summary.new_jobs_inserted ?? 0}</strong><span>New jobs</span></div>
         <div className="stat"><strong>{summary.high_match_unreviewed_jobs ?? 0}</strong><span>High match unreviewed</span></div>
@@ -1069,11 +1119,13 @@ function FreshnessChips({ job }: { job: Job }) {
 function Header({
   title,
   onRefresh,
+  onRetry,
   message,
   meta,
 }: {
   title: string;
   onRefresh: () => void;
+  onRetry: () => void;
   message: string;
   meta: { mode: string; apiUrl: string; sourceCount: string; lastRefresh: string; summaryStatus: string };
 }) {
@@ -1094,6 +1146,7 @@ function Header({
         {meta.mode === "Live API" ? (
           <div>
             <button className="button primary" disabled>Hosted refresh admin-only</button>
+            <button className="button" onClick={onRetry}>Retry live data</button>
             <p className="muted">Run the admin refresh script or scheduled backend refresh.</p>
           </div>
         ) : (

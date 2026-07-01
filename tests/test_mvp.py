@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, hosted_packet_smoke_test, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, resolve_apply_today_blockers, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_endpoint_timings, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, hosted_packet_smoke_test, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, resolve_apply_today_blockers, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -1012,6 +1012,7 @@ class MvpTests(unittest.TestCase):
 
     def test_live_frontend_data_diagnostic_runs_without_secrets(self):
         responses = {
+            "/dashboard/summary": {"job_count": 2, "source_count": 2, "top_jobs": [{"id": 1}], "digest": {"exists": True}},
             "/deployment/status": {"job_count": 2, "source_count": 2},
             "/jobs": [{"source": "USAJobs API"}, {"source": "Woolpert Careers"}],
             "/sources": [{"name": "USAJobs API"}, {"name": "Woolpert Careers"}],
@@ -1024,8 +1025,27 @@ class MvpTests(unittest.TestCase):
         with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_live_frontend_data.fetch_json", side_effect=lambda _base, path: responses[path]), redirect_stdout(output):
             self.assertEqual(check_live_frontend_data.main(["--url", "https://backend.example.com"]), 0)
         text = output.getvalue()
+        self.assertIn("dashboard summary jobs: 2 top jobs: 1", text)
         self.assertIn("jobs: 2", text)
         self.assertIn("sources: 2", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_live_endpoint_timings_diagnostic_runs_without_secrets(self):
+        responses = {
+            "/dashboard/summary": (200, 12.0, {"job_count": 2, "source_count": 2, "top_jobs": [{"id": 1}], "digest": {"exists": True}}, None),
+            "/jobs": (200, 20.0, [{"id": 1}, {"id": 2}], None),
+            "/stats/overview": (200, 10.0, {"total": 2, "high_matches": 1}, None),
+            "/review/apply-today": (200, 11.0, [{"id": 1}], None),
+            "/application/board": (200, 14.0, {"ready_to_apply": [{"id": 1}]}, None),
+            "/sources": (200, 9.0, [{"name": "USAJobs API"}], None),
+            "/reports/latest": (200, 8.0, {"exists": True, "summary": {"new_jobs_inserted": 1}}, None),
+        }
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.check_live_endpoint_timings.fetch_endpoint", side_effect=lambda _base, path: responses[path]), redirect_stdout(output):
+            self.assertEqual(check_live_endpoint_timings.main(["--url", "https://backend.example.com"]), 0)
+        text = output.getvalue()
+        self.assertIn("/dashboard/summary: status=200", text)
+        self.assertIn("jobs=2 sources=2 top_jobs=1", text)
         self.assertNotIn("do-not-print-me", text)
 
     def test_vercel_frontend_fetch_diagnostic_checks_browser_origin(self):
@@ -1090,11 +1110,22 @@ class MvpTests(unittest.TestCase):
         self.assertIn("/dashboard/summary", text)
         self.assertIn("Showing last loaded data - updating...", text)
         self.assertIn("Live API update failed. Showing last loaded data.", text)
-        self.assertIn("Report unavailable.", text)
+        self.assertIn("Latest report unavailable.", text)
         self.assertIn("Loading latest report...", text)
         self.assertIn("Live API has", text)
+        self.assertIn("Top jobs from dashboard summary", text)
+        self.assertIn("Live API connected. Full job list is still loading or unavailable; showing summary/top jobs.", text)
+        self.assertIn("Live API has ${backendJobCount} jobs. Full job list did not load yet.", text)
+        self.assertIn("Sources list unavailable", text)
+        self.assertIn("Stats overview unavailable", text)
+        self.assertIn("Full job list unavailable", text)
+        self.assertIn("Apply Today unavailable", text)
+        self.assertIn("Application Board unavailable", text)
+        self.assertIn("Retry live data", text)
         self.assertIn("Hosted refresh admin-only", text)
         self.assertIn("AbortController", api_text)
+        self.assertIn("timeoutMs(path)", api_text)
+        self.assertNotIn("ADMIN_REFRESH_TOKEN", text)
 
     def test_connect_render_backend_script_is_safe_static(self):
         text = Path("scripts/connect_render_backend.ps1").read_text(encoding="utf-8")

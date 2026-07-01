@@ -8,6 +8,7 @@ from urllib import error, request
 
 DEFAULT_URL = "https://gisjobportal.onrender.com"
 PATHS = (
+    "/dashboard/summary",
     "/deployment/status",
     "/jobs",
     "/sources",
@@ -43,6 +44,7 @@ def collect(base_url: str) -> tuple[dict[str, Any], dict[str, str]]:
 
 
 def summarize(rows: dict[str, Any], errors: dict[str, str]) -> dict[str, Any]:
+    dashboard = rows.get("/dashboard/summary") or {}
     status = rows.get("/deployment/status") or {}
     jobs = rows.get("/jobs") or []
     sources = rows.get("/sources") or []
@@ -51,6 +53,12 @@ def summarize(rows: dict[str, Any], errors: dict[str, str]) -> dict[str, Any]:
     board = rows.get("/application/board") or {}
     report = rows.get("/reports/latest") or {}
     warnings = []
+    if dashboard.get("job_count") not in (None, len(jobs)) and "/jobs" not in errors:
+        warnings.append(f"dashboard/summary job_count={dashboard.get('job_count')} but /jobs length={len(jobs)}")
+    if dashboard.get("source_count") not in (None, len(sources)) and "/sources" not in errors:
+        warnings.append(f"dashboard/summary source_count={dashboard.get('source_count')} but /sources length={len(sources)}")
+    if dashboard.get("job_count", 0) > 0 and "/jobs" in errors:
+        warnings.append("dashboard/summary has jobs but /jobs failed; frontend should show summary top jobs")
     if status.get("job_count") not in (None, len(jobs)):
         warnings.append(f"deployment/status job_count={status.get('job_count')} but /jobs length={len(jobs)}")
     if status.get("source_count") not in (None, len(sources)):
@@ -63,8 +71,11 @@ def summarize(rows: dict[str, Any], errors: dict[str, str]) -> dict[str, Any]:
         warnings.append("one or more endpoints failed; frontend should show partial data plus an error")
     return {
         "deployment_job_count": status.get("job_count", 0),
+        "summary_job_count": dashboard.get("job_count", 0),
+        "summary_top_jobs": len(dashboard.get("top_jobs") or []),
         "jobs_count": len(jobs),
         "deployment_source_count": status.get("source_count", 0),
+        "summary_source_count": dashboard.get("source_count", 0),
         "sources_count": len(sources),
         "stats_total": stats.get("total", 0),
         "review_queue_counts": {key: len(value) for key, value in queue.items() if isinstance(value, list)},
@@ -82,8 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     rows, errors = collect(args.url)
     summary = summarize(rows, errors)
     print(f"backend URL: {args.url.rstrip('/')}")
+    print(f"dashboard summary jobs: {summary['summary_job_count']} top jobs: {summary['summary_top_jobs']}")
     print(f"jobs: {summary['jobs_count']} (/deployment/status: {summary['deployment_job_count']})")
-    print(f"sources: {summary['sources_count']} (/deployment/status: {summary['deployment_source_count']})")
+    print(f"sources: {summary['sources_count']} (/dashboard/summary: {summary['summary_source_count']}, /deployment/status: {summary['deployment_source_count']})")
     print(f"stats total: {summary['stats_total']}")
     print(f"review queue: {summary['review_queue_counts']}")
     print(f"application board: {summary['application_board_counts']}")
