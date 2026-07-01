@@ -67,6 +67,16 @@ class ApplicationPatch(BaseModel):
     outcome_status: str | None = None
 
 
+class BlockerPatch(BaseModel):
+    blocker_type: str | None = None
+    resolved: bool | None = None
+    not_applicable: bool | None = None
+    resolution_note: str | None = None
+    blocker_review_notes: str | None = None
+    manual_apply_override: bool | None = None
+    manual_apply_override_reason: str | None = None
+
+
 class ChecklistPatch(BaseModel):
     checklist: dict[str, Any] | None = None
     resume_required: bool | None = None
@@ -335,6 +345,24 @@ def review(job_id: int, patch: ReviewPatch) -> dict[str, Any]:
 def application(job_id: int, patch: ApplicationPatch) -> dict[str, Any]:
     try:
         return db.update_job_application(job_id, patch.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/jobs/{job_id}/blockers")
+def blockers(job_id: int) -> dict[str, Any]:
+    try:
+        return db.job_blockers(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/jobs/{job_id}/blockers")
+def update_blockers(job_id: int, patch: BlockerPatch) -> dict[str, Any]:
+    try:
+        return db.update_job_blockers(job_id, patch.model_dump(exclude_none=True))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LookupError as exc:

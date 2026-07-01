@@ -370,6 +370,24 @@ export default function DashboardPage({ view }: { view: View }) {
     if (value !== null) await patchApplication(job, { application_submission_notes: value });
   }
 
+  async function updateBlocker(job: Pick<Job, "id">, blocker_type: string, fields: Record<string, unknown>) {
+    await api(`/jobs/${job.id}/blockers`, { method: "PATCH", body: JSON.stringify({ blocker_type, ...fields }) });
+    await load();
+  }
+
+  async function noteBlocker(job: Pick<Job, "id">, blocker_type: string) {
+    const note = window.prompt("Blocker note", "");
+    if (note !== null) await updateBlocker(job, blocker_type, { resolution_note: note });
+  }
+
+  async function overrideReady(job: Pick<Job, "id">) {
+    const reason = window.prompt("Manual override reason");
+    if (reason) {
+      await api(`/jobs/${job.id}/blockers`, { method: "PATCH", body: JSON.stringify({ manual_apply_override: true, manual_apply_override_reason: reason }) });
+      await load();
+    }
+  }
+
   async function generate(job: Job) {
     await api<Job>(`/jobs/${job.id}/generate-materials`, { method: "POST" });
     setMessage(`Generated materials for ${job.title}.`);
@@ -530,7 +548,7 @@ export default function DashboardPage({ view }: { view: View }) {
         </section>
         <div className="jobs-grid">
           {applyTodayJobs.map((job) => (
-            <ApplyTodayCard key={job.id} job={job} onReview={setReview} onStarted={markStarted} onApplied={markApplied} onGeneratePacket={generatePacket} onNotes={addSubmissionNotes} onCopy={copy} />
+            <ApplyTodayCard key={job.id} job={job} onReview={setReview} onStarted={markStarted} onApplied={markApplied} onGeneratePacket={generatePacket} onNotes={addSubmissionNotes} onCopy={copy} onResolveBlocker={updateBlocker} onNoteBlocker={noteBlocker} onOverrideReady={overrideReady} />
           ))}
           {!applyTodayJobs.length && <p className="muted">{loaded ? "No priority jobs ready right now." : "Loading priority jobs..."}</p>}
         </div>
@@ -653,6 +671,9 @@ function ApplyTodayCard({
   onGeneratePacket,
   onNotes,
   onCopy,
+  onResolveBlocker,
+  onNoteBlocker,
+  onOverrideReady,
 }: {
   job: ApplyTodayJob;
   onReview: (job: Pick<Job, "id">, reviewStatus: string) => void;
@@ -661,6 +682,9 @@ function ApplyTodayCard({
   onGeneratePacket: (job: Pick<Job, "id" | "title">) => void;
   onNotes: (job: Pick<Job, "id" | "application_submission_notes">) => void;
   onCopy: (text: string, label: string) => void;
+  onResolveBlocker: (job: Pick<Job, "id">, blockerType: string, fields: Record<string, unknown>) => void;
+  onNoteBlocker: (job: Pick<Job, "id">, blockerType: string) => void;
+  onOverrideReady: (job: Pick<Job, "id">) => void;
 }) {
   const link = jobLink(job);
   const exportCommand = `python scripts/export_application_packet.py --job-id ${job.id}`;
@@ -694,6 +718,7 @@ function ApplyTodayCard({
         <SourceAttribution job={job} />
         <LinkNotice job={job} />
       </div>
+      <Blockers job={job} onResolveBlocker={onResolveBlocker} onNoteBlocker={onNoteBlocker} />
       <div className="actions">
         <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
         <button className="button warning" onClick={() => onGeneratePacket(job)}>Generate Packet</button>
@@ -704,8 +729,47 @@ function ApplyTodayCard({
         <button className="button" onClick={() => onStarted(job)}>Mark Started</button>
         <button className="button" onClick={() => onApplied(job)}>Mark Applied</button>
         <button className="button" onClick={() => onNotes(job)}>Add Notes</button>
+        <button className="button warning" onClick={() => onOverrideReady(job)}>Override to Ready to Apply</button>
       </div>
+      <p className="muted">Manual override does not apply automatically. It only marks this job ready for your review.</p>
     </article>
+  );
+}
+
+function Blockers({
+  job,
+  onResolveBlocker,
+  onNoteBlocker,
+}: {
+  job: ApplyTodayJob;
+  onResolveBlocker: (job: Pick<Job, "id">, blockerType: string, fields: Record<string, unknown>) => void;
+  onNoteBlocker: (job: Pick<Job, "id">, blockerType: string) => void;
+}) {
+  const rows = job.blockers || [];
+  if (!rows.length) return null;
+  return (
+    <div>
+      <h4>Blockers</h4>
+      {["hard_blocker", "review_needed", "soft_warning"].map((severity) => {
+        const items = rows.filter((blocker) => blocker.severity === severity && !blocker.resolved);
+        return items.length ? (
+          <div key={severity}>
+            <p className="muted">{severity.replaceAll("_", " ")}</p>
+            {items.map((blocker) => (
+              <div className="blocker-row" key={`${blocker.blocker_type}-${blocker.evidence_text}`}>
+                <p><strong>{blocker.label || blocker.blocker_type}</strong>: {blocker.evidence_text}</p>
+                <p className="muted">Source: {blocker.source_field}</p>
+                <div className="actions">
+                  <button className="button" onClick={() => onResolveBlocker(job, blocker.blocker_type, { resolved: true, resolution_note: "Cleared from Apply Today." })}>Clear blocker</button>
+                  <button className="button" onClick={() => onResolveBlocker(job, blocker.blocker_type, { not_applicable: true, resolution_note: "Marked not applicable." })}>Mark not applicable</button>
+                  <button className="button" onClick={() => onNoteBlocker(job, blocker.blocker_type)}>Add note</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null;
+      })}
+    </div>
   );
 }
 

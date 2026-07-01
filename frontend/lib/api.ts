@@ -102,6 +102,33 @@ export type DocumentChecklist = {
   other_documents?: string;
 };
 
+export type DecisionBlocker = {
+  blocker_type: string;
+  severity: "hard_blocker" | "review_needed" | "soft_warning" | string;
+  label?: string;
+  evidence_text: string;
+  source_field: string;
+  resolved?: boolean;
+  not_applicable?: boolean;
+  resolution_note?: string;
+};
+
+export type BlockerStatus = {
+  job_id: number;
+  application_priority: string;
+  application_priority_reason: string;
+  application_blockers: string[];
+  blockers: DecisionBlocker[];
+  soft_warnings: DecisionBlocker[];
+  packet_ready: boolean;
+  link_ready: boolean;
+  document_ready: boolean;
+  next_action: string;
+  manual_apply_override?: boolean;
+  manual_apply_override_reason?: string;
+  blocker_review_notes?: string;
+};
+
 export type ApplicationPacket = {
   job_id: number;
   exists: boolean;
@@ -209,6 +236,8 @@ export type ApplyTodayJob = {
   application_priority?: string;
   application_priority_reason?: string;
   application_blockers?: string[];
+  blockers?: DecisionBlocker[];
+  soft_warnings?: DecisionBlocker[];
   packet_ready?: boolean;
   link_ready?: boolean;
   document_ready?: boolean;
@@ -476,6 +505,8 @@ function demoApi<T>(path: string, init?: RequestInit): T {
       application_priority: job.match_score >= 70 ? "review_first" : "maybe",
       application_priority_reason: job.match_score >= 70 ? "strong demo match; generate packet before applying" : "possible demo fit",
       application_blockers: ["packet not QA ready"],
+      blockers: [{ blocker_type: "packet", severity: "review_needed", label: "Packet", evidence_text: "Demo packet not generated.", source_field: "checklist" }],
+      soft_warnings: [],
       packet_ready: false,
       link_ready: Boolean(job.apply_url || job.source_url),
       document_ready: true,

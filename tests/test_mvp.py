@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, resolve_apply_today_blockers, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -1427,7 +1427,7 @@ class MvpTests(unittest.TestCase):
         text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
         self.assertIn("Apply Today", text)
         self.assertIn('/review/apply-today', text)
-        for label in ["Generate Packet", "View Packet", "Export Packet", "Open Apply Link", "Mark Interested", "Mark Started", "Mark Applied", "Add Notes"]:
+        for label in ["Generate Packet", "View Packet", "Export Packet", "Open Apply Link", "Mark Interested", "Mark Started", "Mark Applied", "Add Notes", "Clear blocker", "Mark not applicable", "Override to Ready to Apply"]:
             self.assertIn(label, text)
         for label in ["Apply Now", "Review First", "Maybe", "Skip"]:
             self.assertIn(label, text)
@@ -1456,14 +1456,52 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(row["link_ready"])
         self.assertTrue(row["document_ready"])
 
-    def test_application_decision_reviews_missing_documents_and_seniority(self):
-        review = db.application_decision({**self.job, "match_score": 90, "status": "ready_to_apply", "document_checklist": {"transcript_required": True}})
+    def test_application_decision_reviews_evidence_blockers_and_seniority(self):
+        review = db.application_decision({**self.job, "match_score": 90, "status": "ready_to_apply", "requirements": "Unofficial transcript required before appointment."})
         senior = db.application_decision({**self.job, "title": "Senior GIS Analyst", "match_score": 90, "status": "ready_to_apply"})
+        principal = db.application_decision({**self.job, "title": "Principal GIS Analyst", "match_score": 90, "status": "ready_to_apply"})
         weak = db.application_decision({**self.job, "match_score": 40, "status": "ready_to_apply"})
         self.assertEqual(review["application_priority"], "review_first")
-        self.assertIn("transcript required", review["application_blockers"])
+        self.assertEqual(review["blockers"][0]["blocker_type"], "transcript")
+        self.assertTrue(review["blockers"][0]["evidence_text"])
         self.assertEqual(senior["application_priority"], "maybe")
+        self.assertEqual(principal["application_priority"], "skip")
         self.assertEqual(weak["application_priority"], "skip")
+
+    def test_blockers_require_evidence_text(self):
+        blockers = db.resolved_blockers({**self.job, "match_score": 90, "status": "ready_to_apply", "description": "Generic GIS role."})
+        self.assertEqual(blockers, [])
+
+    def test_work_authorization_hard_blocker_only_when_explicit(self):
+        explicit = db.resolved_blockers({**self.job, "description": "Applicants must be authorized to work in the United States."})
+        vague = db.resolved_blockers({**self.job, "description": "Work with authorization datasets."})
+        self.assertEqual(explicit[0]["blocker_type"], "work_authorization")
+        self.assertEqual(explicit[0]["severity"], "hard_blocker")
+        self.assertEqual(vague, [])
+
+    def test_citizenship_blocker_ignores_equal_opportunity_boilerplate(self):
+        blockers = db.resolved_blockers({**self.job, "description": "Equal Employment Opportunity applies regardless of citizenship status."})
+        self.assertEqual(blockers, [])
+
+    def test_transcript_hard_blocker_only_when_explicit(self):
+        explicit = db.resolved_blockers({**self.job, "requirements": "Official transcript required."})
+        vague = db.resolved_blockers({**self.job, "requirements": "Relevant coursework preferred."})
+        optional = db.resolved_blockers({**self.job, "requirements": "College transcripts may be submitted online."})
+        self.assertEqual(explicit[0]["blocker_type"], "transcript")
+        self.assertEqual(explicit[0]["severity"], "hard_blocker")
+        self.assertEqual(vague, [])
+        self.assertEqual(optional[0]["severity"], "review_needed")
+
+    def test_resolved_blockers_allow_apply_now(self):
+        job = {**self.job, "match_score": 90, "status": "ready_to_apply", "requirements": "Official transcript required.", "blocker_resolutions_json": {"transcript": {"resolved": True, "resolution_note": "Transcript ready."}}}
+        self.assertEqual(db.application_decision(job)["application_priority"], "apply_now")
+
+    def test_manual_override_requires_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job_id, _ = db.insert_job(self.job, path)
+            with self.assertRaises(ValueError):
+                db.update_job_blockers(job_id, {"manual_apply_override": True}, path)
 
     def test_review_update_does_not_change_application_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1644,6 +1682,16 @@ class MvpTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("Apply Today Decisions", text)
         self.assertIn("apply_now", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_resolve_apply_today_blockers_script_runs_safely(self):
+        job = {**self.job, **score_job(self.job, self.profile), "id": 1, "status": "ready_to_apply", "description": "Applicants must be authorized to work in the United States."}
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.resolve_apply_today_blockers.db.apply_today", return_value=[job]), patch("scripts.resolve_apply_today_blockers.db.job_blockers", return_value={**db.application_decision(job), "job_id": 1}), redirect_stdout(output):
+            self.assertEqual(resolve_apply_today_blockers.main(), 0)
+        text = output.getvalue()
+        self.assertIn("Apply Today Blocker Resolver", text)
+        self.assertIn("authorized to work", text)
         self.assertNotIn("do-not-print-me", text)
 
     def test_refresh_creates_report_when_folder_missing(self):

@@ -41,6 +41,7 @@ JSON_FIELDS = {
     "resume_bullet_suggestions",
     "document_checklist",
     "apply_options_json",
+    "blocker_resolutions_json",
 }
 
 JOB_COLUMNS = [
@@ -127,6 +128,11 @@ JOB_COLUMNS = [
     "application_confirmation_number",
     "application_submission_notes",
     "outcome_status",
+    "blocker_resolutions_json",
+    "blocker_reviewed_at",
+    "blocker_review_notes",
+    "manual_apply_override",
+    "manual_apply_override_reason",
 ]
 
 
@@ -273,7 +279,12 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 application_contact_email TEXT DEFAULT '',
                 application_confirmation_number TEXT DEFAULT '',
                 application_submission_notes TEXT DEFAULT '',
-                outcome_status TEXT NOT NULL DEFAULT 'not_started'
+                outcome_status TEXT NOT NULL DEFAULT 'not_started',
+                blocker_resolutions_json TEXT DEFAULT '{}',
+                blocker_reviewed_at TEXT DEFAULT '',
+                blocker_review_notes TEXT DEFAULT '',
+                manual_apply_override INTEGER NOT NULL DEFAULT 0,
+                manual_apply_override_reason TEXT DEFAULT ''
             );
 
             CREATE UNIQUE INDEX IF NOT EXISTS ux_jobs_duplicate
@@ -396,6 +407,11 @@ def ensure_job_columns(conn: Any) -> None:
         "application_confirmation_number": "TEXT DEFAULT ''",
         "application_submission_notes": "TEXT DEFAULT ''",
         "outcome_status": "TEXT NOT NULL DEFAULT 'not_started'",
+        "blocker_resolutions_json": "TEXT DEFAULT '{}'",
+        "blocker_reviewed_at": "TEXT DEFAULT ''",
+        "blocker_review_notes": "TEXT DEFAULT ''",
+        "manual_apply_override": "INTEGER NOT NULL DEFAULT 0",
+        "manual_apply_override_reason": "TEXT DEFAULT ''",
         "external_job_id": "TEXT DEFAULT ''",
         "external_id": "TEXT DEFAULT ''",
         "employer_website": "TEXT DEFAULT ''",
@@ -455,10 +471,10 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         value = job.get(field)
         if isinstance(value, str):
             try:
-                job[field] = json.loads(value) if value else ({} if field in {"scoring_breakdown", "document_checklist"} else [])
+                job[field] = json.loads(value) if value else ({} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json"} else [])
             except json.JSONDecodeError:
-                job[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
-    for field in ("is_stale", "is_closed_or_missing", "needs_packet"):
+                job[field] = {} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json"} else []
+    for field in ("is_stale", "is_closed_or_missing", "needs_packet", "manual_apply_override"):
         job[field] = bool(job.get(field))
     job["apply_is_direct"] = bool(job.get("apply_is_direct"))
     return job
@@ -666,6 +682,10 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     values["review_status"] = values.get("review_status") or "unreviewed"
     values["priority_bucket"] = values.get("priority_bucket") or priority_for_job(values)
     values["outcome_status"] = values.get("outcome_status") or "not_started"
+    values["manual_apply_override"] = int(bool(values.get("manual_apply_override")))
+    values["manual_apply_override_reason"] = values.get("manual_apply_override_reason") or ""
+    values["blocker_reviewed_at"] = values.get("blocker_reviewed_at") or ""
+    values["blocker_review_notes"] = values.get("blocker_review_notes") or ""
     values["link_status"] = values.get("link_status") or ("available" if values.get("apply_url") else "source_only" if values.get("source_url") else "missing")
     values["apply_is_direct"] = int(bool(values.get("apply_is_direct")))
     for field in (
@@ -686,7 +706,7 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     values["is_closed_or_missing"] = int(bool(values.get("is_closed_or_missing")))
     for field in JSON_FIELDS:
         if values.get(field) is None:
-            values[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
+            values[field] = {} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json"} else []
         values[field] = dumps(values.get(field))
 
     columns = ", ".join(JOB_COLUMNS)
@@ -732,6 +752,11 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
                     "application_confirmation_number",
                     "application_submission_notes",
                     "outcome_status",
+                    "blocker_resolutions_json",
+                    "blocker_reviewed_at",
+                    "blocker_review_notes",
+                    "manual_apply_override",
+                    "manual_apply_override_reason",
                 }
             ]
             conn.execute(
@@ -905,39 +930,92 @@ def packet_status_for_job(job: dict[str, Any]) -> str:
     return "Packet missing"
 
 
+BLOCKER_RULES: list[tuple[str, str, str, str, list[str]]] = [
+    ("work_authorization", "hard_blocker", "description", "Work authorization", ["authorized to work", "work authorization", "visa sponsorship", "visa sponsorship is not available", "no visa sponsorship"]),
+    ("citizenship", "hard_blocker", "description", "Citizenship", ["u.s. citizen required", "us citizen required", "must be a u.s. citizen", "must be a us citizen", "u.s. citizenship required", "us citizenship required", "citizenship required"]),
+    ("security_clearance", "review_needed", "description", "Security clearance", ["security clearance", "clearance", "public trust"]),
+    ("transcript", "hard_blocker", "requirements", "Transcript", ["transcript required", "unofficial transcript", "official transcript", "academic transcript", "college transcript", "transcripts are required"]),
+    ("degree_verification", "hard_blocker", "requirements", "Degree verification", ["degree verification", "education verification", "proof of degree"]),
+    ("relocation", "review_needed", "description", "Relocation", ["relocation required", "must relocate", "relocate to", "relocation assistance"]),
+    ("driver_license", "review_needed", "requirements", "Driver's license", ["driver's license", "drivers license", "driver license", "valid license"]),
+    ("portfolio", "soft_warning", "requirements", "Portfolio", ["portfolio required", "portfolio", "work samples"]),
+    ("references", "soft_warning", "requirements", "References", ["references required", "reference list", "references"]),
+]
+
+
+def evidence_for(text: str, phrase: str) -> str:
+    match = re.search(re.escape(phrase), text, re.IGNORECASE)
+    if not match:
+        return ""
+    start = max(text.rfind(".", 0, match.start()), text.rfind("\n", 0, match.start()))
+    end_candidates = [index for index in [text.find(".", match.end()), text.find("\n", match.end())] if index != -1]
+    end = min(end_candidates) if end_candidates else min(len(text), match.end() + 160)
+    return text[start + 1:end + 1].strip()[:240]
+
+
+def blocker_evidence(job: dict[str, Any]) -> list[dict[str, Any]]:
+    fields = {
+        "title": str(job.get("title") or ""),
+        "description": str(job.get("description") or ""),
+        "requirements": str(job.get("requirements") or ""),
+        "metadata": " ".join(str(job.get(key) or "") for key in ["work_authorization_note", "relocation_required", "language_requirement"]),
+    }
+    blockers: list[dict[str, Any]] = []
+    for blocker_type, severity, preferred_field, label, phrases in BLOCKER_RULES:
+        for source_field in [preferred_field, "requirements", "description", "metadata"]:
+            text = fields.get(source_field, "")
+            found = next((evidence_for(text, phrase) for phrase in phrases if evidence_for(text, phrase)), "")
+            if found:
+                actual_severity = "review_needed" if blocker_type == "transcript" and "may be submitted" in found.lower() else severity
+                blockers.append({"blocker_type": blocker_type, "severity": actual_severity, "label": label, "evidence_text": found, "source_field": source_field, "resolved": False, "resolution_note": ""})
+                break
+    title = fields["title"]
+    if senior := evidence_for(title, "senior") or evidence_for(title, "sr."):
+        blockers.append({"blocker_type": "seniority", "severity": "review_needed", "label": "Seniority", "evidence_text": senior, "source_field": "title", "resolved": False, "resolution_note": ""})
+    if senior := next((evidence_for(title, phrase) for phrase in ["principal", "director", "manager"] if evidence_for(title, phrase)), ""):
+        blockers.append({"blocker_type": "seniority", "severity": "hard_blocker", "label": "Seniority", "evidence_text": senior, "source_field": "title", "resolved": False, "resolution_note": ""})
+    return blockers
+
+
+def resolved_blockers(job: dict[str, Any]) -> list[dict[str, Any]]:
+    resolutions = job.get("blocker_resolutions_json") or {}
+    blockers = []
+    for blocker in blocker_evidence(job):
+        resolution = resolutions.get(blocker["blocker_type"], {}) if isinstance(resolutions, dict) else {}
+        blockers.append({
+            **blocker,
+            "resolved": bool(resolution.get("resolved") or resolution.get("not_applicable")),
+            "not_applicable": bool(resolution.get("not_applicable")),
+            "resolution_note": resolution.get("resolution_note", ""),
+        })
+    return blockers
+
+
 def application_decision(job: dict[str, Any]) -> dict[str, Any]:
     score = int(job.get("match_score") or 0)
-    title = str(job.get("title") or "").lower()
-    checklist = job.get("document_checklist") or {}
     packet_status = packet_status_for_job(job)
     link_ready = bool(job.get("apply_url") or job.get("source_url"))
     packet_ready = packet_status in {"Packet QA passed", "Ready to apply", "Applied"}
-    document_blockers = [
-        label for key, label in [
-            ("transcript_required", "transcript required"),
-            ("work_authorization_flag", "work authorization/citizenship review"),
-            ("clearance_flag", "clearance review"),
-            ("relocation_flag", "relocation review"),
-        ]
-        if checklist.get(key)
-    ]
-    if checklist.get("transcript_review_note"):
-        document_blockers.append("transcript requirement uncertain")
-    blockers = []
-    if re.search(r"\b(principal|director|manager)\b", title):
-        blockers.append("seniority likely too high")
-    elif re.search(r"\bsenior|sr\.\b", title):
-        blockers.append("seniority review")
+    blockers = resolved_blockers(job)
+    unresolved = [blocker for blocker in blockers if not blocker["resolved"]]
+    hard = [blocker for blocker in unresolved if blocker["severity"] == "hard_blocker"]
+    review = [blocker for blocker in unresolved if blocker["severity"] == "review_needed"]
+    soft = [blocker for blocker in unresolved if blocker["severity"] == "soft_warning"]
+    blocker_labels = [blocker["label"] for blocker in [*hard, *review]]
     if not link_ready:
-        blockers.append("missing apply/source link")
+        blocker_labels.append("missing apply/source link")
     if not packet_ready:
-        blockers.append("packet not QA ready")
-    blockers.extend(document_blockers)
-    if score < 55:
+        blocker_labels.append("packet not QA ready")
+    manual_override = bool(job.get("manual_apply_override") and job.get("manual_apply_override_reason"))
+    hard_seniority = any(blocker["blocker_type"] == "seniority" for blocker in hard)
+    review_seniority = any(blocker["blocker_type"] == "seniority" for blocker in review)
+    if score < 55 or hard_seniority:
         priority = "skip"
-    elif score < 70 or any("seniority" in blocker for blocker in blockers):
-        priority = "maybe" if score >= 70 and "seniority review" in blockers else "skip" if "seniority likely too high" in blockers else "maybe"
-    elif blockers:
+    elif score < 70 or review_seniority:
+        priority = "maybe"
+    elif manual_override and link_ready and packet_ready and not hard_seniority:
+        priority = "apply_now"
+    elif hard or review or not link_ready or not packet_ready:
         priority = "review_first"
     else:
         priority = "apply_now"
@@ -956,10 +1034,12 @@ def application_decision(job: dict[str, Any]) -> dict[str, Any]:
     return {
         "application_priority": priority,
         "application_priority_reason": reason,
-        "application_blockers": blockers,
+        "application_blockers": blocker_labels,
+        "blockers": blockers,
+        "soft_warnings": soft,
         "packet_ready": packet_ready,
         "link_ready": link_ready,
-        "document_ready": not document_blockers,
+        "document_ready": not hard and not review,
         "next_action": next_action,
     }
 
@@ -1077,6 +1157,41 @@ def update_job_application(job_id: int, fields: dict[str, Any], path: Path | str
         raise ValueError(f"Unsupported application fields: {', '.join(sorted(bad))}")
     updates = {key: value for key, value in fields.items() if value is not None}
     return update_job_fields(job_id, updates, path)
+
+
+def job_blockers(job_id: int, path: Path | str = DB_PATH) -> dict[str, Any]:
+    job = get_job(job_id, path)
+    if not job:
+        raise LookupError(f"Job {job_id} not found")
+    return {**application_decision(job), "job_id": job_id, "blocker_review_notes": job.get("blocker_review_notes", ""), "manual_apply_override": bool(job.get("manual_apply_override")), "manual_apply_override_reason": job.get("manual_apply_override_reason", "")}
+
+
+def update_job_blockers(job_id: int, fields: dict[str, Any], path: Path | str = DB_PATH) -> dict[str, Any]:
+    job = get_job(job_id, path)
+    if not job:
+        raise LookupError(f"Job {job_id} not found")
+    updates: dict[str, Any] = {}
+    resolutions = job.get("blocker_resolutions_json") or {}
+    blocker_type = fields.get("blocker_type")
+    if blocker_type:
+        resolutions[blocker_type] = {
+            **(resolutions.get(blocker_type, {}) if isinstance(resolutions, dict) else {}),
+            **{key: fields[key] for key in ["resolved", "not_applicable", "resolution_note"] if key in fields},
+        }
+        updates["blocker_resolutions_json"] = resolutions
+        updates["blocker_reviewed_at"] = now_iso()
+    if "blocker_review_notes" in fields:
+        updates["blocker_review_notes"] = fields["blocker_review_notes"]
+    if "manual_apply_override" in fields:
+        if fields["manual_apply_override"] and not fields.get("manual_apply_override_reason") and not job.get("manual_apply_override_reason"):
+            raise ValueError("manual_apply_override_reason is required")
+        updates["manual_apply_override"] = bool(fields["manual_apply_override"])
+    if "manual_apply_override_reason" in fields:
+        updates["manual_apply_override_reason"] = fields["manual_apply_override_reason"]
+    if not updates:
+        return job
+    update_job_fields(job_id, updates, path)
+    return job_blockers(job_id, path)
 
 
 def mark_application_started(job_id: int, path: Path | str = DB_PATH) -> dict[str, Any]:

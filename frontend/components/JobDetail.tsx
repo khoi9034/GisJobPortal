@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, ApplicationPacket, DocumentChecklist, Job } from "../lib/api";
+import { api, ApplicationPacket, BlockerStatus, DecisionBlocker, DocumentChecklist, Job } from "../lib/api";
 
 function daysUntil(value?: string) {
   if (!value) return null;
@@ -44,6 +44,7 @@ function sourceAttribution(job: Job) {
 export default function JobDetail({ id }: { id: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [packet, setPacket] = useState<ApplicationPacket | null>(null);
+  const [blockers, setBlockers] = useState<BlockerStatus | null>(null);
   const [checklist, setChecklist] = useState<DocumentChecklist>({});
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
@@ -53,6 +54,7 @@ export default function JobDetail({ id }: { id: string }) {
     setJob(row);
     setNotes(row.notes || "");
     setChecklist(row.document_checklist || {});
+    setBlockers(await api<BlockerStatus>(`/jobs/${id}/blockers`));
   }
 
   useEffect(() => {
@@ -140,6 +142,21 @@ export default function JobDetail({ id }: { id: string }) {
     setJob(row);
     setChecklist(row.document_checklist || {});
     setMessage("Document checklist saved.");
+  }
+
+  async function updateBlocker(blocker_type: string, fields: Record<string, unknown>) {
+    setBlockers(await api<BlockerStatus>(`/jobs/${id}/blockers`, { method: "PATCH", body: JSON.stringify({ blocker_type, ...fields }) }));
+    await load();
+  }
+
+  async function noteBlocker(blocker_type: string) {
+    const note = window.prompt("Blocker note", "");
+    if (note !== null) await updateBlocker(blocker_type, { resolution_note: note });
+  }
+
+  async function overrideReady() {
+    const reason = window.prompt("Manual override reason");
+    if (reason) setBlockers(await api<BlockerStatus>(`/jobs/${id}/blockers`, { method: "PATCH", body: JSON.stringify({ manual_apply_override: true, manual_apply_override_reason: reason }) }));
   }
 
   async function copy(text: string, label: string) {
@@ -250,6 +267,7 @@ export default function JobDetail({ id }: { id: string }) {
           <h3>Document Checklist</h3>
           <Checklist checklist={checklist} setChecklist={setChecklist} />
           <button className="button" onClick={saveChecklist}>Save Checklist</button>
+          <BlockerPanel blockers={blockers} onResolve={updateBlocker} onNote={noteBlocker} onOverride={overrideReady} />
           <h3>Scoring Breakdown</h3>
           <p>{job.score_reason || "Score explanation will appear after refresh/rescore."}</p>
           {Object.entries(job.scoring_breakdown || {}).map(([key, value]) => (
@@ -271,6 +289,56 @@ export default function JobDetail({ id }: { id: string }) {
         </aside>
       </div>
     </main>
+  );
+}
+
+function priorityLabel(value?: string) {
+  if (value === "apply_now") return "Apply Now";
+  if (value === "review_first") return "Review First";
+  if (value === "skip") return "Skip";
+  return "Maybe";
+}
+
+function BlockerPanel({
+  blockers,
+  onResolve,
+  onNote,
+  onOverride,
+}: {
+  blockers: BlockerStatus | null;
+  onResolve: (blockerType: string, fields: Record<string, unknown>) => void;
+  onNote: (blockerType: string) => void;
+  onOverride: () => void;
+}) {
+  if (!blockers) return null;
+  const rows = blockers.blockers || [];
+  return (
+    <section>
+      <h3>Application Decision</h3>
+      <p><strong>{priorityLabel(blockers.application_priority)}</strong> - {blockers.application_priority_reason}</p>
+      <p className="muted">Next: {blockers.next_action}</p>
+      {["hard_blocker", "review_needed", "soft_warning"].map((severity) => {
+        const items = rows.filter((blocker: DecisionBlocker) => blocker.severity === severity && !blocker.resolved);
+        return items.length ? (
+          <div key={severity}>
+            <p className="muted">{severity.replaceAll("_", " ")}</p>
+            {items.map((blocker) => (
+              <div className="blocker-row" key={`${blocker.blocker_type}-${blocker.evidence_text}`}>
+                <p><strong>{blocker.label || blocker.blocker_type}</strong>: {blocker.evidence_text}</p>
+                <p className="muted">Source: {blocker.source_field}</p>
+                <div className="actions">
+                  <button className="button" onClick={() => onResolve(blocker.blocker_type, { resolved: true, resolution_note: "Cleared from job detail." })}>Clear blocker</button>
+                  <button className="button" onClick={() => onResolve(blocker.blocker_type, { not_applicable: true, resolution_note: "Marked not applicable." })}>Mark not applicable</button>
+                  <button className="button" onClick={() => onNote(blocker.blocker_type)}>Add note</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null;
+      })}
+      <button className="button warning" onClick={onOverride}>Override to Ready to Apply</button>
+      <p className="muted">Manual override does not apply automatically. It only marks this job ready for your review.</p>
+    </section>
   );
 }
 
