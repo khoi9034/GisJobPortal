@@ -123,10 +123,10 @@ sources:
       - Principal
       - Manager
       - Director
-    min_score_by_source: 40
-    max_jobs_per_source_per_refresh: 15
+    min_score_by_source: 55
+    max_jobs_per_source_per_refresh: 10
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 8
+    request_timeout_seconds: 12
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -135,11 +135,11 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; preserve publisher attribution.
-    notes: Disabled JSearch/RapidAPI Google Jobs-style GIS source; rotate any pasted RapidAPI key before enabling.
+    notes: Active JSearch/RapidAPI GIS source; keep capped and rotate any pasted RapidAPI key.
   - name: JSearch Planning US
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search-v2
-    enabled: true
+    enabled: false
     coverage_tier: broad_api
     requires_api_key: true
     env_key: RAPIDAPI_KEY
@@ -154,7 +154,7 @@ sources:
     exclude_title_keywords: [Software Engineer, Sales, Marketing, Customer Support]
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     min_score_by_source: 45
-    max_jobs_per_source_per_refresh: 15
+    max_jobs_per_source_per_refresh: 5
     max_api_requests_per_refresh: 1
     request_timeout_seconds: 8
     posted_date_supported: true
@@ -165,7 +165,7 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; preserve publisher attribution.
-    notes: Disabled planning-focused JSearch source; enable after key rotation and validation.
+    notes: Disabled after returning no useful jobs; re-enable for planning-specific tuning.
   - name: JSearch Remote GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search-v2
@@ -184,10 +184,10 @@ sources:
     exclude_title_keywords: [Software Engineer, Sales, Marketing, Customer Support]
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
-    min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 15
+    min_score_by_source: 55
+    max_jobs_per_source_per_refresh: 10
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 8
+    request_timeout_seconds: 12
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -196,7 +196,7 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; preserve publisher attribution.
-    notes: Disabled remote GIS JSearch source; enable one broad source at a time to check noise.
+    notes: Active remote GIS JSearch source; capped to avoid broad API noise.
   - name: SerpApi Google Jobs
     type: api
     provider: serpapi
@@ -283,7 +283,7 @@ sources:
   - name: JSearch Southeast Asia GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search-v2
-    enabled: true
+    enabled: false
     coverage_tier: broad_api
     env_key: RAPIDAPI_KEY
     region_scope: southeast_asia
@@ -315,7 +315,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 15
+    max_jobs_per_source_per_refresh: 5
     max_api_requests_per_refresh: 1
     request_timeout_seconds: 8
     posted_date_supported: true
@@ -326,11 +326,11 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; preserve publisher attribution and do not scrape boards.
-    notes: Disabled SEA broad API source; requires RAPIDAPI_KEY and quality review before enabling.
+    notes: Disabled after repeated timeout/no-result runs; use Singapore-specific profile for SEA testing.
   - name: JSearch Vietnam GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search-v2
-    enabled: true
+    enabled: false
     coverage_tier: broad_api
     region_scope: southeast_asia
     international_region: Southeast Asia
@@ -349,7 +349,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 15
+    max_jobs_per_source_per_refresh: 5
     max_api_requests_per_refresh: 1
     request_timeout_seconds: 8
     posted_date_supported: true
@@ -360,7 +360,7 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; no direct board scraping.
-    notes: Disabled Vietnam JSearch source; activate after RapidAPI key rotation and validation.
+    notes: Disabled after repeated timeouts; prefer Gmail alerts for Vietnam boards until this query is tuned.
   - name: JSearch Singapore GIS
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search-v2
@@ -382,10 +382,10 @@ sources:
     exclude_title_keywords: [Software Engineer, Sales, Marketing, Customer Support]
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
-    min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 15
+    min_score_by_source: 55
+    max_jobs_per_source_per_refresh: 10
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 8
+    request_timeout_seconds: 12
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -394,11 +394,11 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; no direct board scraping.
-    notes: Disabled Singapore JSearch source; activate after RapidAPI key rotation and validation.
+    notes: Active Singapore JSearch source; capped to avoid broad API noise.
   - name: JSearch APAC Remote Sensing
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search-v2
-    enabled: true
+    enabled: false
     coverage_tier: broad_api
     region_scope: apac
     international_region: Southeast Asia
@@ -417,7 +417,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 15
+    max_jobs_per_source_per_refresh: 5
     max_api_requests_per_refresh: 1
     request_timeout_seconds: 8
     posted_date_supported: true
@@ -428,11 +428,11 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; no direct board scraping.
-    notes: Disabled APAC remote sensing JSearch source; enable only after checking noise.
+    notes: Disabled after no-result runs; re-enable only with tighter APAC remote-sensing terms.
   - name: JSearch Location Intelligence
     type: jsearch
     url: https://jsearch.p.rapidapi.com/search-v2
-    enabled: true
+    enabled: false
     coverage_tier: broad_api
     requires_api_key: true
     env_key: RAPIDAPI_KEY
@@ -448,7 +448,7 @@ sources:
     exclude_seniority_keywords: [Senior, Principal, Manager, Director]
     include_remote: true
     min_score_by_source: 50
-    max_jobs_per_source_per_refresh: 15
+    max_jobs_per_source_per_refresh: 5
     max_api_requests_per_refresh: 1
     request_timeout_seconds: 8
     posted_date_supported: true
@@ -459,7 +459,7 @@ sources:
     dedupe_priority: 45
     quality_score: 55
     terms_notes: Use RapidAPI/JSearch API terms; preserve original publisher attribution.
-    notes: Disabled location-intelligence JSearch source; enable one JSearch source first, then expand.
+    notes: Disabled after no-result runs; re-enable only with tighter location-intelligence terms.
   - name: SerpApi Google Jobs SEA
     type: api
     provider: serpapi

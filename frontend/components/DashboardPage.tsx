@@ -110,7 +110,9 @@ function jobLink(job: Pick<Job, "apply_url" | "source_url"> | Pick<ApplyTodayJob
 }
 
 function LinkNotice({ job }: { job: Pick<Job, "apply_url" | "source_url" | "link_status"> | Pick<ApplyTodayJob, "apply_url" | "source_url" | "link_status"> }) {
-  return jobLink(job) ? null : <span className="chip warning">No apply link available from source.</span>;
+  if (job.apply_url) return <span className="chip green">Apply link available</span>;
+  if (job.source_url) return <span className="chip">Source-only link</span>;
+  return <span className="chip warning">No apply link available from source.</span>;
 }
 
 function SourceAttribution({ job }: { job: Pick<Job, "source" | "original_source" | "attribution_note"> | Pick<ApplyTodayJob, "source" | "original_source" | "attribution_note"> }) {

@@ -200,7 +200,7 @@ class MvpTests(unittest.TestCase):
         self.assertTrue(names["Remotive APAC Remote"]["enabled"])
         self.assertEqual(names["Remotive APAC Remote"]["min_score_by_source"], 55)
         self.assertEqual(names["Remotive APAC Remote"]["max_jobs_per_source_per_refresh"], 25)
-        self.assertTrue(names["JSearch Southeast Asia GIS"]["enabled"])
+        self.assertFalse(names["JSearch Southeast Asia GIS"]["enabled"])
         for name in ["SerpApi Google Jobs SEA", "Adzuna International"]:
             self.assertFalse(names[name]["enabled"])
         for name in ["JobStreet JobsDB Job Alerts Email", "Glints Job Alerts Email", "VietnamWorks Job Alerts Email", "TopCV Job Alerts Email"]:
@@ -211,7 +211,38 @@ class MvpTests(unittest.TestCase):
             self.assertFalse(names[name]["enabled"])
             self.assertEqual(names[name]["coverage_tier"], "unsupported")
 
-    def test_jsearch_source_profiles_are_enabled_capped_and_keyed(self):
+    def test_jsearch_source_profiles_are_tuned_and_keyed(self):
+        names = {source["name"]: source for source in load_sources()}
+        useful = ["JSearch GIS US", "JSearch Remote GIS", "JSearch Singapore GIS"]
+        tuned_off = [
+            "JSearch Planning US",
+            "JSearch Southeast Asia GIS",
+            "JSearch Vietnam GIS",
+            "JSearch APAC Remote Sensing",
+            "JSearch Location Intelligence",
+        ]
+        for name in [*useful, *tuned_off]:
+            self.assertEqual(names[name]["type"], "jsearch")
+            self.assertTrue(names[name]["requires_api_key"])
+            self.assertEqual(names[name]["env_key"], "RAPIDAPI_KEY")
+            self.assertLessEqual(names[name]["max_api_requests_per_refresh"], 1)
+            self.assertLessEqual(names[name]["request_timeout_seconds"], 12)
+        for name in useful:
+            self.assertTrue(names[name]["enabled"])
+            self.assertGreaterEqual(names[name]["min_score_by_source"], 55)
+            self.assertLessEqual(names[name]["max_jobs_per_source_per_refresh"], 10)
+        for name in tuned_off:
+            self.assertFalse(names[name]["enabled"])
+            self.assertLessEqual(names[name]["max_jobs_per_source_per_refresh"], 5)
+
+    def test_jsearch_useful_profiles_stay_enabled(self):
+        names = {source["name"]: source for source in load_sources()}
+        self.assertEqual(
+            {name for name, source in names.items() if source.get("type") == "jsearch" and source.get("enabled")},
+            {"JSearch GIS US", "JSearch Remote GIS", "JSearch Singapore GIS"},
+        )
+
+    def test_noisy_jsearch_profiles_are_capped_or_disabled(self):
         names = {source["name"]: source for source in load_sources()}
         for name in [
             "JSearch GIS US",
@@ -223,13 +254,8 @@ class MvpTests(unittest.TestCase):
             "JSearch APAC Remote Sensing",
             "JSearch Location Intelligence",
         ]:
-            self.assertEqual(names[name]["type"], "jsearch")
-            self.assertTrue(names[name]["enabled"])
-            self.assertTrue(names[name]["requires_api_key"])
-            self.assertEqual(names[name]["env_key"], "RAPIDAPI_KEY")
-            self.assertLessEqual(names[name]["max_jobs_per_source_per_refresh"], 15)
+            self.assertLessEqual(names[name]["max_jobs_per_source_per_refresh"], 10)
             self.assertLessEqual(names[name]["max_api_requests_per_refresh"], 1)
-            self.assertLessEqual(names[name]["request_timeout_seconds"], 8)
 
     def test_enabled_sea_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -239,6 +265,18 @@ class MvpTests(unittest.TestCase):
                 result = collectors.refresh_jobs(path, sources_override=[source])
         self.assertEqual(result["sources_checked"], 1)
         self.assertIn("JSearch Southeast Asia GIS", result["errors"])
+
+    def test_jsearch_timeout_does_not_fail_whole_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            sources = [
+                {"name": "JSearch Timeout", "type": "jsearch", "url": "https://jsearch.p.rapidapi.com/search-v2", "enabled": True},
+                {"name": "Temp Manual Jobs", "type": "manual", "url": str(Path(tmp) / "missing.json"), "enabled": True},
+            ]
+            with patch("backend.app.collectors.collect_jsearch", side_effect=TimeoutError("timed out")):
+                result = collectors.refresh_jobs(path, sources_override=sources)
+        self.assertIn("JSearch Timeout", result["errors"])
+        self.assertGreaterEqual(result["jobs_collected"], 1)
 
     def test_enabled_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -651,10 +689,13 @@ class MvpTests(unittest.TestCase):
             {**self.job, "source": "JSearch GIS US", "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.", "apply_url": "", "source_url": "", "match_score": 72},
             {**self.job, "source": "JSearch GIS US", "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.", "apply_url": "https://example.com/apply", "source_url": "", "match_score": 60},
         ]
-        sources = [{"name": "JSearch GIS US", "enabled": True, "last_status": "ok: 1 new, 1 duplicates", "errors_last_run": ""}]
+        sources = [{"name": "JSearch GIS US", "enabled": True, "last_status": "ok: 1 new, 1 duplicates", "jobs_found_last_run": 2, "errors_last_run": ""}]
         with patch("scripts.analyze_source_quality.db.list_jobs", return_value=jobs), patch("scripts.analyze_source_quality.db.list_sources", return_value=sources):
             row = next(item for item in analyze_source_quality.rows() if item["source"] == "JSearch GIS US")
         self.assertEqual(row["missing_links"], 1)
+        self.assertEqual(row["collected_last_run"], 2)
+        self.assertEqual(row["inserted_last_run"], 1)
+        self.assertEqual(row["duplicates_last_run"], 1)
 
     def test_greenhouse_collector_normalizes_mock_response(self):
         source = {
@@ -1256,6 +1297,8 @@ class MvpTests(unittest.TestCase):
             self.assertIn("No apply link available from source.", text)
             self.assertIn("JSearch / Google Jobs result", text)
             self.assertIn("Original source:", text)
+        self.assertIn("Apply link available", dashboard_text)
+        self.assertIn("Source-only link", dashboard_text)
 
     def test_apply_today_defaults_to_five_and_excludes_samples(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1288,13 +1331,40 @@ class MvpTests(unittest.TestCase):
             weak_id, _ = db.insert_job({**self.job, "title": "Weak Closing", "source_url": "https://example.com/weak-closing-apply", "match_score": 42, "score_band": "weak/maybe", "source_closes_at": db.now_iso(), "date_posted": db.now_iso()}, path)
             ordered = [job["id"] for job in db.apply_today(path=path)]
 
-        self.assertLess(ordered.index(strong_id), ordered.index(weak_id))
+        self.assertIn(strong_id, ordered)
+        self.assertNotIn(weak_id, ordered)
+
+    def test_apply_today_excludes_weak_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "title": "Possible Job", "source_url": "https://example.com/possible-apply", "match_score": 55, "date_posted": db.now_iso()}, path)
+            db.insert_job({**self.job, "title": "Weak Job", "source_url": "https://example.com/weak-apply", "match_score": 54, "date_posted": db.now_iso()}, path)
+            rows = db.apply_today(path=path)
+
+        self.assertEqual([job["title"] for job in rows], ["Possible Job"])
 
     def test_apply_today_excludes_low_fit_broad_api_noise(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
             db.insert_job({**self.job, "title": "Good Real Job", "source": "USAJobs API", "source_url": "https://example.com/good-real", "match_score": 72, "date_posted": db.now_iso()}, path)
             db.insert_job({**self.job, "title": "Broad Noise", "source": "Adzuna Jobs API", "source_url": "https://example.com/broad-noise", "match_score": 25, "date_posted": db.now_iso(), "attribution_note": "Collected through Adzuna broad jobs API."}, path)
+            rows = db.apply_today(path=path)
+
+        self.assertEqual([job["title"] for job in rows], ["Good Real Job"])
+
+    def test_apply_today_includes_high_scoring_jsearch_with_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "title": "JSearch Strong", "source": "JSearch GIS US", "apply_url": "https://example.com/jsearch-apply", "source_url": "https://example.com/jsearch-source", "match_score": 88, "date_posted": db.now_iso(), "attribution_note": "Collected through JSearch/RapidAPI broad jobs API."}, path)
+            rows = db.apply_today(path=path)
+
+        self.assertEqual([job["title"] for job in rows], ["JSearch Strong"])
+
+    def test_apply_today_excludes_jsearch_without_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "title": "Good Real Job", "source": "Woolpert Careers", "source_url": "https://example.com/good-real-linked", "match_score": 72, "date_posted": db.now_iso()}, path)
+            db.insert_job({**self.job, "title": "JSearch Missing Link", "source": "JSearch GIS US", "apply_url": "", "source_url": "", "match_score": 99, "date_posted": db.now_iso(), "attribution_note": "Collected through JSearch/RapidAPI broad jobs API."}, path)
             rows = db.apply_today(path=path)
 
         self.assertEqual([job["title"] for job in rows], ["Good Real Job"])

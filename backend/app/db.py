@@ -901,7 +901,8 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         and job.get("outcome_status") not in excluded_outcomes
         and not job.get("is_closed_or_missing")
         and (include_stale or not job.get("is_stale"))
-        and not (broad_api_job(job) and int(job.get("match_score") or 0) < 55)
+        and int(job.get("match_score") or 0) >= 55
+        and not (broad_api_job(job) and not (job.get("apply_url") or job.get("source_url")))
     ]
 
     def rank(job: dict[str, Any]) -> tuple[Any, ...]:

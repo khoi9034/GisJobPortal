@@ -16,10 +16,14 @@ def safe_print(text: str = "") -> None:
 
 
 def duplicate_rate(source: dict, total: int) -> float:
-    text = f"{source.get('last_status', '')} {source.get('errors_last_run', '')}"
-    match = re.search(r"(\d+)\s+duplicates", text)
-    duplicates = int(match.group(1)) if match else 0
+    _, duplicates = status_counts(source)
     return round((duplicates / max(total + duplicates, 1)) * 100, 1)
+
+
+def status_counts(source: dict) -> tuple[int, int]:
+    text = f"{source.get('last_status', '')} {source.get('errors_last_run', '')}"
+    match = re.search(r"ok:\s+(\d+)\s+new,\s+(\d+)\s+duplicates", text)
+    return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
 
 
 def recommendation(total: int, strong: int, low: int, errors: str, enabled: bool) -> str:
@@ -27,12 +31,12 @@ def recommendation(total: int, strong: int, low: int, errors: str, enabled: bool
         return "disabled"
     if total == 0 and "no jobs returned" in errors.lower():
         return "keep enabled as test"
-    if errors:
-        return "tune or disable"
     if total == 0:
         return "keep enabled as test"  # ponytail: zero-result no-key source is harmless; revisit after a week.
     if strong:
         return "keep enabled"
+    if errors:
+        return "tune or disable"
     if low > total / 2:
         return "tune or disable"
     return "tune"
@@ -51,11 +55,15 @@ def rows() -> list[dict]:
         low = sum(score < 55 for score in scores)
         missing_links = sum(1 for job in source_jobs if not (job.get("apply_url") or job.get("source_url")))
         source = sources.get(name, {})
+        inserted, duplicates = status_counts(source)
         errors = source.get("errors_last_run") or ""
         output.append(
             {
                 "source": name,
                 "total": len(source_jobs),
+                "collected_last_run": int(source.get("jobs_found_last_run") or 0),
+                "inserted_last_run": inserted,
+                "duplicates_last_run": duplicates,
                 "strong_excellent": strong,
                 "possible": possible,
                 "low_fit": low,
@@ -73,7 +81,8 @@ def main() -> int:
     safe_print("source quality")
     for row in rows():
         safe_print(
-            f"- {row['source']}: total={row['total']} strong={row['strong_excellent']} "
+            f"- {row['source']}: collected={row['collected_last_run']} inserted={row['inserted_last_run']} "
+            f"duplicates={row['duplicates_last_run']} total={row['total']} strong={row['strong_excellent']} "
             f"possible={row['possible']} low={row['low_fit']} avg={row['average_score']} "
             f"duplicate_rate={row['duplicate_rate']}% missing_links={row['missing_links']} recommendation={row['recommendation']}"
             + (f" errors={row['source_errors']}" if row["source_errors"] else "")
