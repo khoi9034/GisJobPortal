@@ -229,7 +229,7 @@ class MvpTests(unittest.TestCase):
             self.assertEqual(names[name]["env_key"], "RAPIDAPI_KEY")
             self.assertLessEqual(names[name]["max_jobs_per_source_per_refresh"], 15)
             self.assertLessEqual(names[name]["max_api_requests_per_refresh"], 1)
-            self.assertLessEqual(names[name]["request_timeout_seconds"], 2)
+            self.assertLessEqual(names[name]["request_timeout_seconds"], 8)
 
     def test_enabled_sea_broad_api_missing_keys_does_not_break_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:

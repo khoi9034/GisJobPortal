@@ -126,7 +126,7 @@ sources:
     min_score_by_source: 40
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -156,7 +156,7 @@ sources:
     min_score_by_source: 45
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -187,7 +187,7 @@ sources:
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -317,7 +317,7 @@ sources:
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -351,7 +351,7 @@ sources:
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -385,7 +385,7 @@ sources:
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -419,7 +419,7 @@ sources:
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
@@ -450,7 +450,7 @@ sources:
     min_score_by_source: 50
     max_jobs_per_source_per_refresh: 15
     max_api_requests_per_refresh: 1
-    request_timeout_seconds: 2
+    request_timeout_seconds: 8
     posted_date_supported: true
     close_date_supported: false
     updated_date_supported: false
