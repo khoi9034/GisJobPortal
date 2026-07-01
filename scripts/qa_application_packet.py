@@ -37,6 +37,7 @@ def best_job() -> dict[str, Any] | None:
 def quality_checks(job: dict[str, Any], packet: dict[str, Any], profile: dict[str, Any]) -> list[str]:
     files = packet.get("files", {})
     combined = "\n".join(str(value) for value in files.values())
+    combined_without_urls = re.sub(r"https?://\S+", "", combined)
     cover = files.get("cover_letter.md", "")
     followup = files.get("followup_email.md", "")
     profile_has_github = "github" in json.dumps(profile).lower()
@@ -50,7 +51,7 @@ def quality_checks(job: dict[str, Any], packet: dict[str, Any], profile: dict[st
         warnings.append(f"missing packet files: {', '.join(missing)}")
     if profile.get("portfolio", "") not in combined:
         warnings.append("portfolio link missing")
-    if re.search(r"\b\d{3}[-.) ]?\d{3}[-. ]?\d{4}\b", combined):
+    if re.search(r"\b\d{3}[-.) ]?\d{3}[-. ]?\d{4}\b", combined_without_urls):
         warnings.append("possible phone number found")
     if "expert" in combined.lower():
         warnings.append("uses 'expert'")

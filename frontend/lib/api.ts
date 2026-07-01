@@ -205,6 +205,7 @@ export type ApplyTodayJob = {
   attribution_note?: string;
   packet_status: string;
   review_status?: string;
+  application_submission_notes?: string;
   recommendation_reason: string;
 };
 

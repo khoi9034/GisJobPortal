@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -891,6 +892,19 @@ def apply_today_reason(job: dict[str, Any]) -> str:
     return "Worth reviewing"
 
 
+def packet_status_for_job(job: dict[str, Any]) -> str:
+    if job.get("applied_at") or job.get("status") == "applied" or job.get("outcome_status") == "applied":
+        return "Applied"
+    if job.get("status") == "ready_to_apply" or job.get("outcome_status") == "ready_to_apply":
+        return "Ready to apply"
+    if job.get("application_packet_dir") or job.get("packet_generated_at"):
+        text = f"{job.get('generated_cover_letter', '')}\n{job.get('generated_followup_email', '')}"
+        if "portfolio-gamma-six-p15gdz1e0v.vercel.app" in text and not re.search(r"\b\d{3}[-.) ]?\d{3}[-. ]?\d{4}\b", text) and "expert" not in text.lower():
+            return "Packet QA passed"
+        return "Packet generated"
+    return "Packet missing"
+
+
 def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool = False, include_sample: bool = True) -> list[dict[str, Any]]:
     excluded_statuses = {"applied", "skipped", "rejected"}
     excluded_outcomes = {"applied", "rejected", "closed", "withdrawn"}
@@ -936,11 +950,12 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         "attribution_note",
         "link_status",
         "review_status",
+        "application_submission_notes",
     }
     return [
         {
             **{key: job.get(key) for key in fields},
-            "packet_status": "generated" if job.get("application_packet_dir") or job.get("packet_generated_at") else "not_generated",
+            "packet_status": packet_status_for_job(job),
             "recommendation_reason": apply_today_reason(job),
         }
         for job in selected

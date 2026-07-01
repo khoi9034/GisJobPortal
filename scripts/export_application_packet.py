@@ -49,14 +49,20 @@ def job_summary(job: dict[str, Any]) -> str:
 def submission_checklist(job: dict[str, Any]) -> str:
     checklist = job.get("document_checklist") or {}
     transcript = "only if required" if checklist.get("transcript_required") else "not flagged"
+    cover = "required" if checklist.get("cover_letter_required") else "recommended"
     return "\n".join(
         [
             "# Submission Checklist",
             "",
             "- [ ] Open apply link manually",
             "- [ ] Upload resume manually",
-            "- [ ] Upload cover letter manually if required",
+            f"- [ ] Upload cover letter manually: {cover}",
             f"- [ ] Upload transcript manually: {transcript}",
+            f"- [ ] Confirm portfolio link included: {'yes' if checklist.get('portfolio_link_included') else 'check manually'}",
+            f"- [ ] References: {'flagged' if checklist.get('references_required') else 'not flagged'}",
+            f"- [ ] Work authorization / citizenship: {'flagged' if checklist.get('work_authorization_flag') else 'not flagged'}",
+            f"- [ ] Clearance: {'flagged' if checklist.get('clearance_flag') else 'not flagged'}",
+            f"- [ ] Relocation / remote notes: {checklist.get('remote_note') or ('relocation flagged' if checklist.get('relocation_flag') else 'not flagged')}",
             "- [ ] Paste/check portal answers",
             "- [ ] Submit manually outside this app",
             "- [ ] Record confirmation number",

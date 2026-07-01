@@ -365,7 +365,7 @@ export default function DashboardPage({ view }: { view: View }) {
     if (value !== null) await patchApplication(job, { follow_up_due_at: value, outcome_status: value ? "follow_up_due" : job.outcome_status });
   }
 
-  async function addSubmissionNotes(job: Job) {
+  async function addSubmissionNotes(job: Pick<Job, "id" | "application_submission_notes">) {
     const value = window.prompt("Submission notes", job.application_submission_notes || "");
     if (value !== null) await patchApplication(job, { application_submission_notes: value });
   }
@@ -530,7 +530,7 @@ export default function DashboardPage({ view }: { view: View }) {
         </section>
         <div className="jobs-grid">
           {applyTodayJobs.map((job) => (
-            <ApplyTodayCard key={job.id} job={job} onReview={setReview} onStarted={markStarted} onApplied={markApplied} onGeneratePacket={generatePacket} />
+            <ApplyTodayCard key={job.id} job={job} onReview={setReview} onStarted={markStarted} onApplied={markApplied} onGeneratePacket={generatePacket} onNotes={addSubmissionNotes} onCopy={copy} />
           ))}
           {!applyTodayJobs.length && <p className="muted">{loaded ? "No priority jobs ready right now." : "Loading priority jobs..."}</p>}
         </div>
@@ -651,14 +651,19 @@ function ApplyTodayCard({
   onStarted,
   onApplied,
   onGeneratePacket,
+  onNotes,
+  onCopy,
 }: {
   job: ApplyTodayJob;
   onReview: (job: Pick<Job, "id">, reviewStatus: string) => void;
   onStarted: (job: Pick<Job, "id">) => void;
   onApplied: (job: Pick<Job, "id">) => void;
   onGeneratePacket: (job: Pick<Job, "id" | "title">) => void;
+  onNotes: (job: Pick<Job, "id" | "application_submission_notes">) => void;
+  onCopy: (text: string, label: string) => void;
 }) {
   const link = jobLink(job);
+  const exportCommand = `python scripts/export_application_packet.py --job-id ${job.id}`;
   return (
     <article className="job-card">
       <div className="job-head">
@@ -686,10 +691,13 @@ function ApplyTodayCard({
       <div className="actions">
         <Link className="button" href={`/jobs/${job.id}`}>View Details</Link>
         <button className="button warning" onClick={() => onGeneratePacket(job)}>Generate Packet</button>
+        <Link className="button" href={`/jobs/${job.id}`}>View Packet</Link>
+        <button className="button" onClick={() => onCopy(exportCommand, "export command")}>Export Packet</button>
         {link ? <a className="button primary" href={link} target="_blank">Open Apply Link</a> : null}
         <button className="button" onClick={() => onReview(job, "interested")}>Mark Interested</button>
         <button className="button" onClick={() => onStarted(job)}>Mark Started</button>
         <button className="button" onClick={() => onApplied(job)}>Mark Applied</button>
+        <button className="button" onClick={() => onNotes(job)}>Add Notes</button>
       </div>
     </article>
   );

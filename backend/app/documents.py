@@ -136,6 +136,10 @@ def detect_document_checklist(job: dict[str, Any]) -> dict[str, Any]:
         "portfolio_link_included": True,
         "references_required": any(phrase in text for phrase in ["references", "reference list"]),
         "writing_sample_required": "writing sample" in text,
+        "work_authorization_flag": any(phrase in text for phrase in ["work authorization", "authorized to work", "visa sponsorship", "us citizen", "u.s. citizen", "citizenship"]),
+        "clearance_flag": "clearance" in text,
+        "relocation_flag": any(phrase in text for phrase in ["relocation", "relocate"]),
+        "remote_note": "remote/hybrid mentioned" if any(phrase in text for phrase in ["remote", "hybrid", "telework", "telecommute"]) else "",
         "other_documents": "Review the posting for portal-specific uploads." if any(word in text for word in ["attach", "upload", "documents"]) else "",
     }
 
@@ -156,8 +160,12 @@ def checklist_markdown(checklist: dict[str, Any]) -> str:
         "portfolio_link_included": "Portfolio link included",
         "references_required": "References required",
         "writing_sample_required": "Writing sample required",
+        "work_authorization_flag": "Work authorization / citizenship flag",
+        "clearance_flag": "Clearance flag",
+        "relocation_flag": "Relocation flag",
     }
     rows = [f"- [{'x' if checklist.get(key) else ' '}] {label}" for key, label in labels.items()]
+    rows.append(f"- Remote / timezone note: {checklist.get('remote_note') or 'None flagged'}")
     rows.append(f"- Other documents: {checklist.get('other_documents') or 'None flagged'}")
     return "# Required Documents Checklist\n\n" + "\n".join(rows) + "\n"
 

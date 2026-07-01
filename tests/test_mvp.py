@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -145,20 +145,23 @@ class MvpTests(unittest.TestCase):
     def test_mark_started_sets_application_started_at(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
-            job_id, _ = db.insert_job(self.job, path)
+            job_id, _ = db.insert_job({**self.job, "review_status": "interested"}, path)
             updated = db.mark_application_started(job_id, path)
         self.assertEqual(updated["application_started_at"], db.now_iso())
         self.assertEqual(updated["application_url_opened_at"], db.now_iso())
         self.assertEqual(updated["outcome_status"], "ready_to_apply")
+        self.assertEqual(updated["review_status"], "interested")
 
     def test_mark_applied_sets_applied_at_and_outcome_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.sqlite3"
-            job_id, _ = db.insert_job(self.job, path)
+            job_id, _ = db.insert_job({**self.job, "review_status": "interested"}, path)
             updated = db.mark_applied(job_id, path)
         self.assertEqual(updated["status"], "applied")
         self.assertEqual(updated["outcome_status"], "applied")
         self.assertEqual(updated["applied_at"], db.now_iso())
+        self.assertTrue(updated["follow_up_due_at"])
+        self.assertEqual(updated["review_status"], "interested")
 
     def test_follow_up_due_default_logic(self):
         today = date.fromisoformat(db.now_iso())
@@ -1424,7 +1427,22 @@ class MvpTests(unittest.TestCase):
         text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
         self.assertIn("Apply Today", text)
         self.assertIn('/review/apply-today', text)
+        for label in ["Generate Packet", "View Packet", "Export Packet", "Open Apply Link", "Mark Interested", "Mark Started", "Mark Applied", "Add Notes"]:
+            self.assertIn(label, text)
         self.assertTrue(Path("frontend/app/apply-today/page.tsx").exists())
+
+    def test_apply_today_jobs_expose_packet_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "title": "Missing Packet", "source_url": "https://example.com/missing-packet", "match_score": 80}, path)
+            db.insert_job({**self.job, "title": "Generated Packet", "source_url": "https://example.com/generated-packet", "match_score": 79, "application_packet_dir": "generated/application_packets/job-1", "generated_cover_letter": f"Portfolio: {self.profile['portfolio']}", "generated_followup_email": "Short follow up"}, path)
+            db.insert_job({**self.job, "title": "Ready Packet", "source_url": "https://example.com/ready-packet", "match_score": 78, "status": "ready_to_apply"}, path)
+            statuses = {job["title"]: job["packet_status"] for job in db.apply_today(path=path, limit=10)}
+
+        self.assertEqual(statuses["Missing Packet"], "Packet missing")
+        self.assertEqual(statuses["Generated Packet"], "Packet QA passed")
+        self.assertEqual(statuses["Ready Packet"], "Ready to apply")
+        self.assertEqual(db.packet_status_for_job({"status": "applied"}), "Applied")
 
     def test_review_update_does_not_change_application_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1571,6 +1589,24 @@ class MvpTests(unittest.TestCase):
             summary = exported.joinpath("job_summary.md").read_text(encoding="utf-8")
         self.assertIn("No apply link available from source.", summary)
         self.assertIn("Link status: missing", summary)
+
+    def test_export_apply_today_packets_skips_missing_packets(self):
+        output = io.StringIO()
+        with patch("scripts.export_apply_today_packets.db.apply_today", return_value=[{"id": 1, "title": "GIS Analyst"}]), patch("scripts.export_apply_today_packets.export_packet", side_effect=FileNotFoundError("Generate the application packet first.")), redirect_stdout(output):
+            self.assertEqual(export_apply_today_packets.main(), 0)
+        self.assertIn("generate packet first", output.getvalue())
+
+    def test_qa_apply_today_script_runs_safely(self):
+        scored_job = {**self.job, **score_job(self.job, self.profile), "id": 1, "packet_status": "Packet generated"}
+        checklist = detect_document_checklist(scored_job)
+        files = build_packet_files(scored_job, self.profile, "Cabarrus County GIS Analyst Intern", "", checklist)
+        packet = {"exists": True, "files": files, "document_checklist": checklist}
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.qa_apply_today.db.apply_today", return_value=[scored_job]), patch("scripts.qa_apply_today.get_application_packet", return_value=packet), redirect_stdout(output):
+            self.assertEqual(qa_apply_today.main(), 0)
+        text = output.getvalue()
+        self.assertIn("Apply Today QA", text)
+        self.assertNotIn("do-not-print-me", text)
 
     def test_refresh_creates_report_when_folder_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1806,10 +1842,29 @@ class MvpTests(unittest.TestCase):
         self.assertLess(len(files["followup_email.md"]), len(files["cover_letter.md"]))
         self.assertEqual(qa_application_packet.quality_checks(scored_job, {"files": files, "document_checklist": checklist}, self.profile), [])
 
+    def test_packet_quality_ignores_numeric_job_urls_for_phone_check(self):
+        scored_job = {"id": 7, **self.job, **score_job(self.job, self.profile)}
+        checklist = detect_document_checklist(scored_job)
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            files = build_packet_files(scored_job, self.profile, "Cabarrus County GIS Analyst Intern", "", checklist)
+        files["job_summary.md"] += "\nApply URL: https://job-boards.greenhouse.io/woolpert/jobs/4294937009\n"
+        warnings = qa_application_packet.quality_checks(scored_job, {"files": files, "document_checklist": checklist}, self.profile)
+        self.assertNotIn("possible phone number found", warnings)
+
     def test_checklist_flags_transcript_only_when_posting_requires_it(self):
         self.assertFalse(detect_document_checklist(self.job)["transcript_required"])
         relevant = {**self.job, "requirements": "Unofficial transcript required with GPA and relevant coursework."}
         self.assertTrue(detect_document_checklist(relevant)["transcript_required"])
+
+    def test_document_checklist_flags_authorization_clearance_and_remote_notes(self):
+        checklist = detect_document_checklist({
+            **self.job,
+            "description": "Remote hybrid GIS role with work authorization, U.S. citizenship, security clearance, and relocation assistance notes.",
+        })
+        self.assertTrue(checklist["work_authorization_flag"])
+        self.assertTrue(checklist["clearance_flag"])
+        self.assertTrue(checklist["relocation_flag"])
+        self.assertEqual(checklist["remote_note"], "remote/hybrid mentioned")
 
     def test_generated_materials_do_not_include_phone_or_invent_experience(self):
         job = {**self.job, "requirements": "Drone mapping and AutoCAD required."}
