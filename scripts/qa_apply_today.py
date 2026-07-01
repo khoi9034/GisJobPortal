@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from backend.app import db  # noqa: E402
-from backend.app.documents import generate_application_packet, get_application_packet  # noqa: E402
+from backend.app.documents import detect_document_checklist, generate_application_packet, get_application_packet  # noqa: E402
 from backend.app.profile import load_profile  # noqa: E402
 from backend.app.reports import redact  # noqa: E402
 from backend.app.scoring import score_band  # noqa: E402
@@ -23,12 +23,17 @@ def safe_print(text: str = "") -> None:
 
 def packet_for(job: dict[str, Any]) -> tuple[dict[str, Any], str]:
     packet = get_application_packet(job["id"])
-    if packet.get("exists"):
+    expected = detect_document_checklist(job)
+    current = packet.get("document_checklist") or {}
+    checklist_file = (packet.get("files", {}).get("required_documents_checklist.md") or "").lower()
+    stale_transcript_file = ("[x] transcript required" in checklist_file) != bool(expected.get("transcript_required"))
+    if packet.get("exists") and current.get("transcript_required") == expected.get("transcript_required") and not stale_transcript_file:
         return packet, "existing"
     return generate_application_packet(job["id"]), "generated"
 
 
 def qa_job(job: dict[str, Any], profile: dict[str, Any]) -> list[str]:
+    job = {**(db.get_job(job["id"]) or {}), **job}
     warnings: list[str] = []
     if not (job.get("apply_url") or job.get("source_url")):
         warnings.append("missing apply/source link")

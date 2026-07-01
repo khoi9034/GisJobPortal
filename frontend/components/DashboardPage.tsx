@@ -676,13 +676,19 @@ function ApplyTodayCard({
             {job.close_days_remaining !== null && job.close_days_remaining !== undefined ? ` | ${job.close_days_remaining} days left` : ""}
           </p>
           <p className="muted">{job.recommendation_reason}</p>
+          <p><strong>{priorityLabel(job.application_priority)}</strong>{job.application_priority_reason ? ` - ${job.application_priority_reason}` : ""}</p>
+          {job.application_blockers?.length ? <p className="muted">Blockers: {job.application_blockers.join(", ")}</p> : null}
+          {job.next_action ? <p className="muted">Next: {job.next_action}</p> : null}
         </div>
         <div className="score"><strong>{job.match_score}</strong><span>{scoreBand(job)}</span></div>
       </div>
       <div className="chips">
+        <span className="chip green">{priorityLabel(job.application_priority)}</span>
         <span className="chip green">{scoreBand(job)}</span>
         <span className="chip">{job.freshness_bucket || "unknown"}</span>
         <span className="chip">{job.packet_status}</span>
+        <span className="chip">{job.link_ready ? "Link ready" : "Link missing"}</span>
+        <span className="chip">{job.document_ready ? "Docs ready" : "Docs need review"}</span>
         <span className="chip">{job.review_status || "unreviewed"}</span>
         <SampleJobBadge job={job} />
         <SourceAttribution job={job} />
@@ -701,6 +707,13 @@ function ApplyTodayCard({
       </div>
     </article>
   );
+}
+
+function priorityLabel(value?: string) {
+  if (value === "apply_now") return "Apply Now";
+  if (value === "review_first") return "Review First";
+  if (value === "skip") return "Skip";
+  return "Maybe";
 }
 
 function ApplicationJobCard({

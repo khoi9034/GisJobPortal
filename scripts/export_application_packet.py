@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from backend.app import db  # noqa: E402
-from backend.app.documents import packet_dir_for, safe_slug  # noqa: E402
+from backend.app.documents import detect_document_checklist, packet_dir_for, safe_slug  # noqa: E402
 from backend.app.reports import redact  # noqa: E402
 
 EXPORTS_DIR = ROOT / "runtime" / "exports"
@@ -72,10 +72,37 @@ def submission_checklist(job: dict[str, Any]) -> str:
     )
 
 
+def final_submission_checklist(job: dict[str, Any]) -> str:
+    checklist = job.get("document_checklist") or {}
+    return "\n".join(
+        [
+            "# Final Submission Checklist",
+            "",
+            "- [ ] Confirm job is still open",
+            "- [ ] Open apply link",
+            "- [ ] Upload resume",
+            "- [ ] Upload cover letter if required",
+            "- [ ] Upload transcript only if required",
+            "- [ ] Paste portfolio link",
+            "- [ ] Answer screening questions carefully",
+            "- [ ] Save confirmation number",
+            "- [ ] Mark applied in portal",
+            "- [ ] Set follow-up date",
+            f"- Transcript note: {checklist.get('transcript_review_note') or 'None'}",
+            "",
+        ]
+    )
+
+
 def export_packet(job_id: int, db_path: Path | str = db.DB_PATH, export_root: Path = EXPORTS_DIR) -> Path:
     job = db.get_job(job_id, db_path)
     if not job:
         raise LookupError(f"Job {job_id} not found")
+    detected_checklist = detect_document_checklist(job)
+    checklist = {**detected_checklist, **(job.get("document_checklist") or {})}
+    checklist["transcript_required"] = detected_checklist["transcript_required"]
+    checklist["transcript_review_note"] = detected_checklist.get("transcript_review_note", "")
+    job = {**job, "document_checklist": checklist}
     packet_dir = Path(job.get("application_packet_dir") or packet_dir_for(job))
     files = packet_files(packet_dir)
     if not files:
@@ -87,6 +114,7 @@ def export_packet(job_id: int, db_path: Path | str = db.DB_PATH, export_root: Pa
         (target / path.name).write_text(safe_text(path.read_text(encoding="utf-8")), encoding="utf-8")
     (target / "job_summary.md").write_text(job_summary(job), encoding="utf-8")
     (target / "submission_checklist.md").write_text(submission_checklist(job), encoding="utf-8")
+    (target / "final_submission_checklist.md").write_text(final_submission_checklist(job), encoding="utf-8")
     return target
 
 

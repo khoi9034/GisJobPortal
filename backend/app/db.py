@@ -905,6 +905,65 @@ def packet_status_for_job(job: dict[str, Any]) -> str:
     return "Packet missing"
 
 
+def application_decision(job: dict[str, Any]) -> dict[str, Any]:
+    score = int(job.get("match_score") or 0)
+    title = str(job.get("title") or "").lower()
+    checklist = job.get("document_checklist") or {}
+    packet_status = packet_status_for_job(job)
+    link_ready = bool(job.get("apply_url") or job.get("source_url"))
+    packet_ready = packet_status in {"Packet QA passed", "Ready to apply", "Applied"}
+    document_blockers = [
+        label for key, label in [
+            ("transcript_required", "transcript required"),
+            ("work_authorization_flag", "work authorization/citizenship review"),
+            ("clearance_flag", "clearance review"),
+            ("relocation_flag", "relocation review"),
+        ]
+        if checklist.get(key)
+    ]
+    if checklist.get("transcript_review_note"):
+        document_blockers.append("transcript requirement uncertain")
+    blockers = []
+    if re.search(r"\b(principal|director|manager)\b", title):
+        blockers.append("seniority likely too high")
+    elif re.search(r"\bsenior|sr\.\b", title):
+        blockers.append("seniority review")
+    if not link_ready:
+        blockers.append("missing apply/source link")
+    if not packet_ready:
+        blockers.append("packet not QA ready")
+    blockers.extend(document_blockers)
+    if score < 55:
+        priority = "skip"
+    elif score < 70 or any("seniority" in blocker for blocker in blockers):
+        priority = "maybe" if score >= 70 and "seniority review" in blockers else "skip" if "seniority likely too high" in blockers else "maybe"
+    elif blockers:
+        priority = "review_first"
+    else:
+        priority = "apply_now"
+    next_action = {
+        "apply_now": "Apply manually now.",
+        "review_first": "Review blockers, then apply manually.",
+        "maybe": "Review fit before spending packet time.",
+        "skip": "Skip unless the posting is unusually compelling.",
+    }[priority]
+    reason = {
+        "apply_now": "strong match, apply link available, packet QA passed",
+        "review_first": "strong match but needs manual review",
+        "maybe": "possible fit with fit or seniority concerns",
+        "skip": "weak or likely mismatched role",
+    }[priority]
+    return {
+        "application_priority": priority,
+        "application_priority_reason": reason,
+        "application_blockers": blockers,
+        "packet_ready": packet_ready,
+        "link_ready": link_ready,
+        "document_ready": not document_blockers,
+        "next_action": next_action,
+    }
+
+
 def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool = False, include_sample: bool = True) -> list[dict[str, Any]]:
     excluded_statuses = {"applied", "skipped", "rejected"}
     excluded_outcomes = {"applied", "rejected", "closed", "withdrawn"}
@@ -951,12 +1010,14 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         "link_status",
         "review_status",
         "application_submission_notes",
+        "document_checklist",
     }
     return [
         {
             **{key: job.get(key) for key in fields},
             "packet_status": packet_status_for_job(job),
             "recommendation_reason": apply_today_reason(job),
+            **application_decision(job),
         }
         for job in selected
     ]

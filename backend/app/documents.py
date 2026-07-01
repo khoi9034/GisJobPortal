@@ -24,9 +24,21 @@ TRANSCRIPT_PHRASES = {
     "official transcript",
     "academic transcript",
     "college transcript",
+    "transcripts are required",
+    "degree verification",
+    "proof of coursework",
+    "coursework proof",
+    "coursework verification",
+    "gpa transcript",
+    "transcript showing",
+}
+
+TRANSCRIPT_REVIEW_PHRASES = {
     "coursework",
     "gpa",
-    "degree verification",
+    "academic background",
+    "degree proof",
+    "education verification",
 }
 
 ACADEMIC_KEYWORDS = {
@@ -119,20 +131,18 @@ def job_text(job: dict[str, Any]) -> str:
 
 def should_use_transcript(job: dict[str, Any]) -> bool:
     text = job_text(job)
-    if any(phrase in text for phrase in TRANSCRIPT_PHRASES):
-        return True
-    academic = any(word in text for word in ["coursework", "degree", "gpa", "academic background"])
-    internship_or_public = any(word in text for word in ["intern", "internship", "government", "county", "city"])
-    entry = any(word in text for word in ["entry-level", "entry level", "technician"])
-    return academic and (internship_or_public or entry)
+    return any(phrase in text for phrase in TRANSCRIPT_PHRASES)
 
 
 def detect_document_checklist(job: dict[str, Any]) -> dict[str, Any]:
     text = job_text(job)
+    transcript_required = any(phrase in text for phrase in TRANSCRIPT_PHRASES)
+    transcript_review = "" if transcript_required or not any(phrase in text for phrase in TRANSCRIPT_REVIEW_PHRASES) else "Review transcript requirement manually."
     return {
         "resume_required": True,
         "cover_letter_required": any(phrase in text for phrase in ["cover letter", "letter of interest"]),
-        "transcript_required": any(phrase in text for phrase in TRANSCRIPT_PHRASES),
+        "transcript_required": transcript_required,
+        "transcript_review_note": transcript_review,
         "portfolio_link_included": True,
         "references_required": any(phrase in text for phrase in ["references", "reference list"]),
         "writing_sample_required": "writing sample" in text,
@@ -165,6 +175,8 @@ def checklist_markdown(checklist: dict[str, Any]) -> str:
         "relocation_flag": "Relocation flag",
     }
     rows = [f"- [{'x' if checklist.get(key) else ' '}] {label}" for key, label in labels.items()]
+    if checklist.get("transcript_review_note"):
+        rows.append(f"- Transcript note: {checklist['transcript_review_note']}")
     rows.append(f"- Remote / timezone note: {checklist.get('remote_note') or 'None flagged'}")
     rows.append(f"- Other documents: {checklist.get('other_documents') or 'None flagged'}")
     return "# Required Documents Checklist\n\n" + "\n".join(rows) + "\n"
@@ -229,7 +241,10 @@ def generate_application_packet(job_id: int) -> dict[str, Any]:
     if not job:
         raise LookupError(f"Job {job_id} not found")
     profile = load_profile()
-    checklist = {**detect_document_checklist(job), **(job.get("document_checklist") or {})}
+    detected_checklist = detect_document_checklist(job)
+    checklist = {**detected_checklist, **(job.get("document_checklist") or {})}
+    checklist["transcript_required"] = detected_checklist["transcript_required"]
+    checklist["transcript_review_note"] = detected_checklist.get("transcript_review_note", "")
     resume_text = resume_summary()["text"]
     use_transcript = bool(checklist.get("transcript_required")) or should_use_transcript(job)
     transcript_text = transcript_summary()["text"] if use_transcript else ""
@@ -270,11 +285,15 @@ def get_application_packet(job_id: int) -> dict[str, Any]:
     files = {}
     if packet_dir.exists():
         files = {path.name: path.read_text(encoding="utf-8") for path in sorted(packet_dir.glob("*.md"))}
+    detected_checklist = detect_document_checklist(job)
+    checklist = {**detected_checklist, **(job.get("document_checklist") or {})}
+    checklist["transcript_required"] = detected_checklist["transcript_required"]
+    checklist["transcript_review_note"] = detected_checklist.get("transcript_review_note", "")
     return {
         "job_id": job_id,
         "exists": bool(files),
         "packet_dir": str(packet_dir),
         "files": files,
-        "document_checklist": job.get("document_checklist") or detect_document_checklist(job),
+        "document_checklist": checklist,
         "generation_mode": "template_fallback",
     }

@@ -206,6 +206,13 @@ export type ApplyTodayJob = {
   packet_status: string;
   review_status?: string;
   application_submission_notes?: string;
+  application_priority?: string;
+  application_priority_reason?: string;
+  application_blockers?: string[];
+  packet_ready?: boolean;
+  link_ready?: boolean;
+  document_ready?: boolean;
+  next_action?: string;
   recommendation_reason: string;
 };
 
@@ -466,6 +473,13 @@ function demoApi<T>(path: string, init?: RequestInit): T {
       attribution_note: job.attribution_note,
       packet_status: job.application_packet_dir || job.packet_generated_at ? "generated" : "not_generated",
       review_status: job.review_status,
+      application_priority: job.match_score >= 70 ? "review_first" : "maybe",
+      application_priority_reason: job.match_score >= 70 ? "strong demo match; generate packet before applying" : "possible demo fit",
+      application_blockers: ["packet not QA ready"],
+      packet_ready: false,
+      link_ready: Boolean(job.apply_url || job.source_url),
+      document_ready: true,
+      next_action: "Generate packet, then review manually.",
       recommendation_reason: job.match_score >= 70 ? job.score_band || "Strong match score" : "Fresh posting",
     })) as T;
   }

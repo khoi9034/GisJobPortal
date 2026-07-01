@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -1429,6 +1429,8 @@ class MvpTests(unittest.TestCase):
         self.assertIn('/review/apply-today', text)
         for label in ["Generate Packet", "View Packet", "Export Packet", "Open Apply Link", "Mark Interested", "Mark Started", "Mark Applied", "Add Notes"]:
             self.assertIn(label, text)
+        for label in ["Apply Now", "Review First", "Maybe", "Skip"]:
+            self.assertIn(label, text)
         self.assertTrue(Path("frontend/app/apply-today/page.tsx").exists())
 
     def test_apply_today_jobs_expose_packet_status(self):
@@ -1443,6 +1445,25 @@ class MvpTests(unittest.TestCase):
         self.assertEqual(statuses["Generated Packet"], "Packet QA passed")
         self.assertEqual(statuses["Ready Packet"], "Ready to apply")
         self.assertEqual(db.packet_status_for_job({"status": "applied"}), "Applied")
+
+    def test_apply_today_jobs_expose_application_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            db.insert_job({**self.job, "source_url": "https://example.com/apply-now", "match_score": 90, "status": "ready_to_apply"}, path)
+            row = db.apply_today(path=path, limit=1)[0]
+        self.assertEqual(row["application_priority"], "apply_now")
+        self.assertTrue(row["packet_ready"])
+        self.assertTrue(row["link_ready"])
+        self.assertTrue(row["document_ready"])
+
+    def test_application_decision_reviews_missing_documents_and_seniority(self):
+        review = db.application_decision({**self.job, "match_score": 90, "status": "ready_to_apply", "document_checklist": {"transcript_required": True}})
+        senior = db.application_decision({**self.job, "title": "Senior GIS Analyst", "match_score": 90, "status": "ready_to_apply"})
+        weak = db.application_decision({**self.job, "match_score": 40, "status": "ready_to_apply"})
+        self.assertEqual(review["application_priority"], "review_first")
+        self.assertIn("transcript required", review["application_blockers"])
+        self.assertEqual(senior["application_priority"], "maybe")
+        self.assertEqual(weak["application_priority"], "skip")
 
     def test_review_update_does_not_change_application_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1571,8 +1592,12 @@ class MvpTests(unittest.TestCase):
             combined = "\n".join(path.read_text(encoding="utf-8") for path in exported.glob("*.md"))
             names = {path.name for path in exported.glob("*.md")}
             self.assertIn("submission_checklist.md", names)
+            self.assertIn("final_submission_checklist.md", names)
             self.assertIn("job_summary.md", names)
             self.assertIn("Source URL: https://example.com/export", exported.joinpath("job_summary.md").read_text(encoding="utf-8"))
+            final = exported.joinpath("final_submission_checklist.md").read_text(encoding="utf-8")
+            self.assertIn("Confirm job is still open", final)
+            self.assertIn("Mark applied in portal", final)
             self.assertNotIn(secret, combined)
             self.assertNotIn(r"C:\Dev\GisJobPortal\private", combined)
 
@@ -1606,6 +1631,19 @@ class MvpTests(unittest.TestCase):
             self.assertEqual(qa_apply_today.main(), 0)
         text = output.getvalue()
         self.assertIn("Apply Today QA", text)
+        self.assertNotIn("do-not-print-me", text)
+
+    def test_decide_apply_today_script_runs_safely(self):
+        job = {**self.job, **score_job(self.job, self.profile), "id": 1, "status": "ready_to_apply"}
+        checklist = detect_document_checklist(job)
+        files = build_packet_files(job, self.profile, "Cabarrus County GIS Analyst Intern", "", checklist)
+        packet = {"exists": True, "files": files, "document_checklist": checklist}
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.decide_apply_today.db.apply_today", return_value=[job]), patch("scripts.decide_apply_today.db.get_job", return_value=job), patch("scripts.decide_apply_today.packet_for", return_value=(packet, "existing")), redirect_stdout(output):
+            self.assertEqual(decide_apply_today.main(), 0)
+        text = output.getvalue()
+        self.assertIn("Apply Today Decisions", text)
+        self.assertIn("apply_now", text)
         self.assertNotIn("do-not-print-me", text)
 
     def test_refresh_creates_report_when_folder_missing(self):
@@ -1816,6 +1854,8 @@ class MvpTests(unittest.TestCase):
         self.assertFalse(should_use_transcript(self.job))
         relevant = {**self.job, "requirements": "Unofficial transcript required with GPA and relevant coursework."}
         self.assertTrue(should_use_transcript(relevant))
+        vague = {**self.job, "title": "GIS Intern", "requirements": "Relevant coursework and GPA preferred."}
+        self.assertFalse(should_use_transcript(vague))
 
     def test_packet_includes_portfolio_and_document_checklist(self):
         scored_job = {"id": 7, **self.job, **score_job(self.job, self.profile)}
@@ -1855,6 +1895,11 @@ class MvpTests(unittest.TestCase):
         self.assertFalse(detect_document_checklist(self.job)["transcript_required"])
         relevant = {**self.job, "requirements": "Unofficial transcript required with GPA and relevant coursework."}
         self.assertTrue(detect_document_checklist(relevant)["transcript_required"])
+
+    def test_uncertain_transcript_language_creates_manual_review_note(self):
+        checklist = detect_document_checklist({**self.job, "title": "GIS Intern", "requirements": "Relevant coursework and GPA preferred."})
+        self.assertFalse(checklist["transcript_required"])
+        self.assertEqual(checklist["transcript_review_note"], "Review transcript requirement manually.")
 
     def test_document_checklist_flags_authorization_clearance_and_remote_notes(self):
         checklist = detect_document_checklist({
