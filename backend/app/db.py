@@ -42,6 +42,8 @@ JSON_FIELDS = {
     "document_checklist",
     "apply_options_json",
     "blocker_resolutions_json",
+    "application_packet_files_json",
+    "packet_qa_notes",
 }
 
 JOB_COLUMNS = [
@@ -115,6 +117,9 @@ JOB_COLUMNS = [
     "close_days_remaining",
     "needs_packet",
     "packet_generated_at",
+    "application_packet_files_json",
+    "packet_qa_status",
+    "packet_qa_notes",
     "is_stale",
     "is_closed_or_missing",
     "application_url_opened_at",
@@ -267,6 +272,9 @@ def init_db(path: Path | str = DB_PATH) -> None:
                 close_days_remaining INTEGER,
                 needs_packet INTEGER NOT NULL DEFAULT 1,
                 packet_generated_at TEXT DEFAULT '',
+                application_packet_files_json TEXT DEFAULT '{}',
+                packet_qa_status TEXT DEFAULT '',
+                packet_qa_notes TEXT DEFAULT '[]',
                 is_stale INTEGER NOT NULL DEFAULT 0,
                 is_closed_or_missing INTEGER NOT NULL DEFAULT 0,
                 application_url_opened_at TEXT DEFAULT '',
@@ -390,6 +398,9 @@ def ensure_job_columns(conn: Any) -> None:
         "close_days_remaining": "INTEGER",
         "needs_packet": "INTEGER NOT NULL DEFAULT 1",
         "packet_generated_at": "TEXT DEFAULT ''",
+        "application_packet_files_json": "TEXT DEFAULT '{}'",
+        "packet_qa_status": "TEXT DEFAULT ''",
+        "packet_qa_notes": "TEXT DEFAULT '[]'",
         "is_stale": "INTEGER NOT NULL DEFAULT 0",
         "is_closed_or_missing": "INTEGER NOT NULL DEFAULT 0",
         "positive_matches": "TEXT DEFAULT '[]'",
@@ -471,9 +482,9 @@ def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         value = job.get(field)
         if isinstance(value, str):
             try:
-                job[field] = json.loads(value) if value else ({} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json"} else [])
+                job[field] = json.loads(value) if value else ({} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json", "application_packet_files_json"} else [])
             except json.JSONDecodeError:
-                job[field] = {} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json"} else []
+                job[field] = {} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json", "application_packet_files_json"} else []
     for field in ("is_stale", "is_closed_or_missing", "needs_packet", "manual_apply_override"):
         job[field] = bool(job.get(field))
     job["apply_is_direct"] = bool(job.get("apply_is_direct"))
@@ -706,7 +717,7 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
     values["is_closed_or_missing"] = int(bool(values.get("is_closed_or_missing")))
     for field in JSON_FIELDS:
         if values.get(field) is None:
-            values[field] = {} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json"} else []
+            values[field] = {} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json", "application_packet_files_json"} else []
         values[field] = dumps(values.get(field))
 
     columns = ", ".join(JOB_COLUMNS)
@@ -741,6 +752,9 @@ def insert_job(job: dict[str, Any], path: Path | str = DB_PATH) -> tuple[int | N
                     "priority_bucket",
                     "needs_packet",
                     "packet_generated_at",
+                    "application_packet_files_json",
+                    "packet_qa_status",
+                    "packet_qa_notes",
                     "application_url_opened_at",
                     "application_started_at",
                     "applied_at",
@@ -855,8 +869,11 @@ def update_job_fields(job_id: int, fields: dict[str, Any], path: Path | str = DB
     values = dict(fields)
     for field in JSON_FIELDS & set(values):
         if values.get(field) is None:
-            values[field] = {} if field in {"scoring_breakdown", "document_checklist"} else []
+            values[field] = {} if field in {"scoring_breakdown", "document_checklist", "blocker_resolutions_json", "application_packet_files_json"} else []
         values[field] = dumps(values[field])
+    for field in ("is_stale", "is_closed_or_missing", "needs_packet", "manual_apply_override", "apply_is_direct"):
+        if field in values and values[field] is not None:
+            values[field] = int(bool(values[field]))
     assignments = ", ".join(f"{field} = ?" for field in values)
 
     init_db(path)
@@ -922,7 +939,11 @@ def packet_status_for_job(job: dict[str, Any]) -> str:
         return "Applied"
     if job.get("status") == "ready_to_apply" or job.get("outcome_status") == "ready_to_apply":
         return "Ready to apply"
-    if job.get("application_packet_dir") or job.get("packet_generated_at"):
+    if job.get("packet_qa_status") == "passed":
+        return "Packet QA passed"
+    if job.get("packet_qa_status") == "warnings":
+        return "Packet QA warnings"
+    if job.get("application_packet_files_json") or job.get("application_packet_dir") or job.get("packet_generated_at"):
         text = f"{job.get('generated_cover_letter', '')}\n{job.get('generated_followup_email', '')}"
         if "portfolio-gamma-six-p15gdz1e0v.vercel.app" in text and not re.search(r"\b\d{3}[-.) ]?\d{3}[-. ]?\d{4}\b", text) and "expert" not in text.lower():
             return "Packet QA passed"
@@ -995,7 +1016,7 @@ def application_decision(job: dict[str, Any]) -> dict[str, Any]:
     score = int(job.get("match_score") or 0)
     packet_status = packet_status_for_job(job)
     link_ready = bool(job.get("apply_url") or job.get("source_url"))
-    packet_ready = packet_status in {"Packet QA passed", "Ready to apply", "Applied"}
+    packet_ready = packet_status in {"Packet QA passed", "Packet QA warnings", "Ready to apply", "Applied"}
     blockers = resolved_blockers(job)
     unresolved = [blocker for blocker in blockers if not blocker["resolved"]]
     hard = [blocker for blocker in unresolved if blocker["severity"] == "hard_blocker"]
@@ -1091,6 +1112,8 @@ def apply_today(path: Path | str = DB_PATH, limit: int = 5, include_stale: bool 
         "review_status",
         "application_submission_notes",
         "document_checklist",
+        "packet_qa_status",
+        "packet_qa_notes",
     }
     return [
         {

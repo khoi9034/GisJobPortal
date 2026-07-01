@@ -21,6 +21,7 @@ EXPECTED_FILES = {
     "resume_angle.md",
     "resume_bullet_suggestions.md",
     "required_documents_checklist.md",
+    "final_submission_checklist.md",
     "application_notes.md",
 }
 

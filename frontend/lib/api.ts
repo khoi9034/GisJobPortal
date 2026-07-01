@@ -89,6 +89,8 @@ export type Job = {
   score_band?: string;
   recommended_resume_angle: string;
   application_packet_dir: string;
+  packet_qa_status?: string;
+  packet_qa_notes?: string[];
   document_checklist: DocumentChecklist;
 };
 
@@ -135,7 +137,10 @@ export type ApplicationPacket = {
   packet_dir: string;
   files: Record<string, string>;
   document_checklist: DocumentChecklist;
+  packet_qa_status?: string;
+  packet_qa_notes?: string[];
   generation_mode: "pony_alpha" | "template_fallback";
+  job?: Job & Partial<ApplyTodayJob>;
 };
 
 export type AiStatus = {
@@ -231,6 +236,8 @@ export type ApplyTodayJob = {
   original_source?: string;
   attribution_note?: string;
   packet_status: string;
+  packet_qa_status?: string;
+  packet_qa_notes?: string[];
   review_status?: string;
   application_submission_notes?: string;
   application_priority?: string;

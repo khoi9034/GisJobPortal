@@ -182,6 +182,27 @@ def checklist_markdown(checklist: dict[str, Any]) -> str:
     return "# Required Documents Checklist\n\n" + "\n".join(rows) + "\n"
 
 
+def final_submission_checklist_markdown(checklist: dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            "# Final Submission Checklist",
+            "",
+            "- [ ] Confirm job is still open",
+            "- [ ] Open apply link",
+            "- [ ] Upload resume",
+            "- [ ] Upload cover letter if required",
+            "- [ ] Upload transcript only if required",
+            "- [ ] Paste portfolio link",
+            "- [ ] Answer screening questions carefully",
+            "- [ ] Save confirmation number",
+            "- [ ] Mark applied in portal",
+            "- [ ] Set follow-up date",
+            f"- Transcript note: {checklist.get('transcript_review_note') or 'None'}",
+            "",
+        ]
+    )
+
+
 def job_summary_markdown(job: dict[str, Any]) -> str:
     apply_url = job.get("apply_url") or ""
     source_url = job.get("source_url") or ""
@@ -226,6 +247,7 @@ def build_packet_files(
         "resume_angle.md": materials.get("resume_angle") or job.get("recommended_resume_angle") or "Lead with Cabarrus County GIS, public GIS data, and ArcGIS Enterprise work.",
         "resume_bullet_suggestions.md": "# Resume Bullet Suggestions\n\n" + "\n".join(f"- {item}" for item in materials["resume_bullets"]) + "\n",
         "required_documents_checklist.md": materials.get("required_documents_checklist") or checklist_markdown(checklist),
+        "final_submission_checklist.md": final_submission_checklist_markdown(checklist),
         "application_notes.md": notes if notes.startswith("#") else f"# Application Notes\n\n{notes}\n",
     }
 
@@ -234,6 +256,30 @@ def write_packet(packet_dir: Path, files: dict[str, str]) -> None:
     packet_dir.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
         (packet_dir / name).write_text(content, encoding="utf-8")
+
+
+def packet_qa(job: dict[str, Any], files: dict[str, str], checklist: dict[str, Any]) -> dict[str, Any]:
+    combined = "\n".join(str(value) for value in files.values())
+    combined_without_urls = re.sub(r"https?://\S+", "", combined)
+    warnings = []
+    required = {"cover_letter.md", "followup_email.md", "recruiter_message.md", "resume_angle.md", "resume_bullet_suggestions.md", "required_documents_checklist.md", "application_notes.md", "job_summary.md", "final_submission_checklist.md"}
+    if missing := sorted(required - set(files)):
+        warnings.append(f"missing packet files: {', '.join(missing)}")
+    if "portfolio-gamma-six-p15gdz1e0v.vercel.app" not in combined:
+        warnings.append("portfolio link missing")
+    if re.search(r"\b\d{3}[-.) ]?\d{3}[-. ]?\d{4}\b", combined_without_urls):
+        warnings.append("possible phone number found")
+    if "expert" in combined.lower():
+        warnings.append("uses expert")
+    if any(token in combined.lower() for token in ["resume_extracted.md", "transcript_summary.md", ".env", "private\\", "private/"]):
+        warnings.append("raw private path or env marker found")
+    link = job.get("apply_url") or job.get("source_url")
+    if link and link not in files.get("job_summary.md", ""):
+        warnings.append("job_summary missing apply/source link")
+    if "final_submission_checklist.md" not in files:
+        warnings.append("final submission checklist missing")
+    status = "passed" if not warnings else "failed" if any("missing packet files" in warning or "private" in warning for warning in warnings) else "warnings"
+    return {"packet_qa_status": status, "packet_qa_notes": warnings}
 
 
 def generate_application_packet(job_id: int) -> dict[str, Any]:
@@ -250,9 +296,10 @@ def generate_application_packet(job_id: int) -> dict[str, Any]:
     transcript_text = transcript_summary()["text"] if use_transcript else ""
     materials = generate_materials(job, profile, resume_text, transcript_text, checklist)
     files = build_packet_files(job, profile, resume_text, transcript_text, checklist, materials)
+    qa = packet_qa(job, files, checklist)
     packet_dir = packet_dir_for(job)
     write_packet(packet_dir, files)
-    db.update_job_fields(
+    updated = db.update_job_fields(
         job_id,
         {
             "status": "materials_generated",
@@ -263,9 +310,11 @@ def generate_application_packet(job_id: int) -> dict[str, Any]:
             "resume_bullet_suggestions": materials["resume_bullets"],
             "recommended_resume_angle": materials.get("resume_angle") or job.get("recommended_resume_angle", ""),
             "application_packet_dir": str(packet_dir),
+            "application_packet_files_json": files,
             "document_checklist": checklist,
             "needs_packet": False,
             "packet_generated_at": db.now_iso(),
+            **qa,
         },
     )
     return {
@@ -274,7 +323,19 @@ def generate_application_packet(job_id: int) -> dict[str, Any]:
         "files": files,
         "document_checklist": checklist,
         "generation_mode": materials.get("generation_mode", "template_fallback"),
+        **qa,
+        "job": {**updated, **db.application_decision(updated)},
     }
+
+
+def qa_application_packet(job_id: int) -> dict[str, Any]:
+    packet = get_application_packet(job_id)
+    job = db.get_job(job_id)
+    if not job:
+        raise LookupError(f"Job {job_id} not found")
+    qa = packet_qa(job, packet.get("files", {}), packet.get("document_checklist", {}))
+    updated = db.update_job_fields(job_id, qa)
+    return {**packet, **qa, "job": {**updated, **db.application_decision(updated)}}
 
 
 def get_application_packet(job_id: int) -> dict[str, Any]:
@@ -283,7 +344,9 @@ def get_application_packet(job_id: int) -> dict[str, Any]:
         raise LookupError(f"Job {job_id} not found")
     packet_dir = Path(job.get("application_packet_dir") or packet_dir_for(job))
     files = {}
-    if packet_dir.exists():
+    if job.get("application_packet_files_json"):
+        files = job.get("application_packet_files_json") or {}
+    elif packet_dir.exists():
         files = {path.name: path.read_text(encoding="utf-8") for path in sorted(packet_dir.glob("*.md"))}
     detected_checklist = detect_document_checklist(job)
     checklist = {**detected_checklist, **(job.get("document_checklist") or {})}
@@ -295,5 +358,7 @@ def get_application_packet(job_id: int) -> dict[str, Any]:
         "packet_dir": str(packet_dir),
         "files": files,
         "document_checklist": checklist,
+        "packet_qa_status": job.get("packet_qa_status") or "",
+        "packet_qa_notes": job.get("packet_qa_notes") or [],
         "generation_mode": "template_fallback",
     }

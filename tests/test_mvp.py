@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 from fastapi import HTTPException
 
-from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, resolve_apply_today_blockers, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
+from scripts import admin_refresh_hosted, analyze_job_matches, analyze_source_quality, check_frontend_data_mode, check_hosted_backend, check_live_frontend_data, check_ports, check_vercel_frontend_fetch, decide_apply_today, discover_sources, export_application_packet, export_apply_today_packets, export_sqlite_to_json, hosted_packet_smoke_test, import_json_to_db, ingest_gmail_job_alerts, qa_application_packet, qa_apply_today, resolve_apply_today_blockers, setup_gmail_oauth, setup_usajobs, source_toggle, test_scheduled_refresh_payload, validate_target_sources
 from backend.app import collectors, db, reports
 from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
@@ -22,6 +22,9 @@ from backend.app.documents import (
     detect_document_checklist,
     extract_resume,
     extract_transcript,
+    generate_application_packet,
+    get_application_packet,
+    qa_application_packet as qa_db_packet,
     should_use_transcript,
 )
 from backend.app.email_alerts import create_job_from_alert, dedupe_alert_jobs, gmail_alert_query_profiles, ingest_gmail_alerts, load_gmail_token, parse_alert_jobs, parse_indeed_alert_text, parse_linkedin_alert_text
@@ -1652,6 +1655,91 @@ class MvpTests(unittest.TestCase):
             summary = exported.joinpath("job_summary.md").read_text(encoding="utf-8")
         self.assertIn("No apply link available from source.", summary)
         self.assertIn("Link status: missing", summary)
+
+    def test_generated_packet_stores_files_and_qa_in_db(self):
+        job = {"id": 1, **self.job, **score_job(self.job, self.profile)}
+        captured = {}
+
+        def update_job_fields(_job_id, fields):
+            captured.update(fields)
+            return {**job, **fields}
+
+        with patch("backend.app.documents.db.get_job", return_value=job), patch("backend.app.documents.db.update_job_fields", side_effect=update_job_fields), patch("backend.app.documents.write_packet"), patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False), patch("backend.app.ai.service.load_backend_env"):
+            packet = generate_application_packet(1)
+
+        self.assertIn("cover_letter.md", captured["application_packet_files_json"])
+        self.assertIn("final_submission_checklist.md", captured["application_packet_files_json"])
+        self.assertEqual(captured["packet_qa_status"], "passed")
+        self.assertEqual(packet["packet_qa_status"], "passed")
+
+    def test_duplicate_refresh_preserves_db_packet_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            packet_files = {"cover_letter.md": "Portfolio: https://portfolio-gamma-six-p15gdz1e0v.vercel.app"}
+            job_id, first_duplicate = db.insert_job({**self.job, "source_url": "https://example.com/packet-preserve", "application_packet_files_json": packet_files, "packet_qa_status": "passed"}, path)
+            _, second_duplicate = db.insert_job({**self.job, "source_url": "https://example.com/packet-preserve", "application_packet_files_json": {}, "packet_qa_status": ""}, path)
+            job = db.get_job(job_id, path)
+        self.assertFalse(first_duplicate)
+        self.assertTrue(second_duplicate)
+        self.assertEqual(job["packet_qa_status"], "passed")
+        self.assertEqual(job["application_packet_files_json"], packet_files)
+
+    def test_update_job_fields_coerces_bool_flags_for_postgres(self):
+        captured = {}
+
+        class FakeConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, _sql, params):
+                captured["params"] = params
+
+        with patch("backend.app.db.init_db"), patch("backend.app.db.connection", return_value=FakeConnection()), patch("backend.app.db.get_job", return_value={**self.job, "needs_packet": False}):
+            db.update_job_fields(1, {"needs_packet": False})
+        self.assertEqual(captured["params"][0], 0)
+
+    def test_packet_viewer_reads_db_packet_without_runtime_files(self):
+        job = {
+            "id": 1,
+            **self.job,
+            "application_packet_files_json": {"cover_letter.md": "Portfolio: https://portfolio-gamma-six-p15gdz1e0v.vercel.app"},
+            "packet_qa_status": "passed",
+            "packet_qa_notes": [],
+        }
+        with patch("backend.app.documents.db.get_job", return_value=job):
+            packet = get_application_packet(1)
+        self.assertTrue(packet["exists"])
+        self.assertEqual(packet["files"]["cover_letter.md"], job["application_packet_files_json"]["cover_letter.md"])
+        self.assertEqual(packet["packet_qa_status"], "passed")
+
+    def test_packet_qa_status_persists(self):
+        job = {"id": 1, **self.job, "application_packet_files_json": build_packet_files({"id": 1, **self.job, **score_job(self.job, self.profile)}, self.profile, "Cabarrus County GIS Analyst Intern", "", detect_document_checklist(self.job))}
+        captured = {}
+        with patch("backend.app.documents.db.get_job", return_value=job), patch("backend.app.documents.db.update_job_fields", side_effect=lambda _job_id, fields: captured.update(fields) or {**job, **fields}):
+            result = qa_db_packet(1)
+        self.assertEqual(captured["packet_qa_status"], "passed")
+        self.assertEqual(result["packet_qa_status"], "passed")
+
+    def test_apply_today_becomes_apply_now_when_db_packet_ready(self):
+        job = {**self.job, "match_score": 90, "packet_qa_status": "passed", "application_packet_files_json": {"cover_letter.md": "ok"}}
+        self.assertEqual(db.application_decision(job)["application_priority"], "apply_now")
+
+    def test_hosted_packet_smoke_test_dry_run_is_safe(self):
+        responses = [
+            [{"id": 1, "title": "GIS Analyst", "match_score": 90, "application_priority": "review_first"}],
+            {"exists": True, "files": {"cover_letter.md": "safe"}, "packet_qa_status": "passed"},
+            [{"id": 1, "title": "GIS Analyst", "match_score": 90, "application_priority": "apply_now", "packet_status": "Packet QA passed"}],
+        ]
+        output = io.StringIO()
+        with patch.dict(os.environ, {"FAKE_SECRET_KEY": "do-not-print-me"}, clear=False), patch("scripts.hosted_packet_smoke_test.request_json", side_effect=responses), redirect_stdout(output):
+            self.assertEqual(hosted_packet_smoke_test.main(["--url", "https://backend.example.com"]), 0)
+        text = output.getvalue()
+        self.assertIn("dry run", text)
+        self.assertIn("apply_now", text)
+        self.assertNotIn("do-not-print-me", text)
 
     def test_export_apply_today_packets_skips_missing_packets(self):
         output = io.StringIO()

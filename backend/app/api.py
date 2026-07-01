@@ -16,6 +16,7 @@ from .documents import (
     extract_transcript,
     generate_application_packet,
     get_application_packet,
+    qa_application_packet,
     resume_summary,
     transcript_summary,
 )
@@ -309,6 +310,14 @@ def ai_status_endpoint() -> dict[str, object]:
 def application_packet(job_id: int) -> dict[str, Any]:
     try:
         return get_application_packet(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/jobs/{job_id}/qa-packet")
+def qa_packet(job_id: int) -> dict[str, Any]:
+    try:
+        return qa_application_packet(job_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

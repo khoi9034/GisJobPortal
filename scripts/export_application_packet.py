@@ -104,14 +104,18 @@ def export_packet(job_id: int, db_path: Path | str = db.DB_PATH, export_root: Pa
     checklist["transcript_review_note"] = detected_checklist.get("transcript_review_note", "")
     job = {**job, "document_checklist": checklist}
     packet_dir = Path(job.get("application_packet_dir") or packet_dir_for(job))
-    files = packet_files(packet_dir)
+    db_files = job.get("application_packet_files_json") or {}
+    files = {name: content for name, content in db_files.items() if str(name).endswith(".md")} if isinstance(db_files, dict) else {}
+    file_paths = packet_files(packet_dir)
+    if not files:
+        files = {path.name: path.read_text(encoding="utf-8") for path in file_paths}
     if not files:
         raise FileNotFoundError(f"No generated packet found for job {job_id}. Generate the application packet first.")
 
     target = export_root / f"job-{job_id}-{safe_slug(job.get('company', 'company'))}-{safe_slug(job.get('title', 'job'))}"
     target.mkdir(parents=True, exist_ok=True)
-    for path in files:
-        (target / path.name).write_text(safe_text(path.read_text(encoding="utf-8")), encoding="utf-8")
+    for name, content in files.items():
+        (target / name).write_text(safe_text(content), encoding="utf-8")
     (target / "job_summary.md").write_text(job_summary(job), encoding="utf-8")
     (target / "submission_checklist.md").write_text(submission_checklist(job), encoding="utf-8")
     (target / "final_submission_checklist.md").write_text(final_submission_checklist(job), encoding="utf-8")

@@ -13,7 +13,7 @@ from backend.app.documents import detect_document_checklist, generate_applicatio
 from backend.app.profile import load_profile  # noqa: E402
 from backend.app.reports import redact  # noqa: E402
 from backend.app.scoring import score_band  # noqa: E402
-from scripts.qa_application_packet import quality_checks  # noqa: E402
+from scripts.qa_application_packet import EXPECTED_FILES, quality_checks  # noqa: E402
 
 
 def safe_print(text: str = "") -> None:
@@ -27,7 +27,8 @@ def packet_for(job: dict[str, Any]) -> tuple[dict[str, Any], str]:
     current = packet.get("document_checklist") or {}
     checklist_file = (packet.get("files", {}).get("required_documents_checklist.md") or "").lower()
     stale_transcript_file = ("[x] transcript required" in checklist_file) != bool(expected.get("transcript_required"))
-    if packet.get("exists") and current.get("transcript_required") == expected.get("transcript_required") and not stale_transcript_file:
+    missing_files = EXPECTED_FILES - set(packet.get("files", {}))
+    if packet.get("exists") and current.get("transcript_required") == expected.get("transcript_required") and not stale_transcript_file and not missing_files:
         return packet, "existing"
     return generate_application_packet(job["id"]), "generated"
 
