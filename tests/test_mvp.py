@@ -92,6 +92,23 @@ class MvpTests(unittest.TestCase):
             self.assertEqual(updated["first_seen_at"], "2026-06-01")
             self.assertEqual(updated["last_seen_at"], "2026-06-15")
 
+    def test_mark_missing_uses_jsearch_apply_url_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "jobs.sqlite3"
+            job = {
+                **self.job,
+                "source": "JSearch GIS US",
+                "source_url": "https://google.example/jobs/abc",
+                "apply_url": "https://employer.example/apply/abc",
+                "attribution_note": "Collected through JSearch/RapidAPI broad jobs API.",
+            }
+            db.insert_job(job, path)
+            missing = db.mark_missing_jobs("JSearch GIS US", db.now_iso(), [job], path)
+            rows = db.list_jobs(path=path)
+
+        self.assertEqual(missing, 0)
+        self.assertFalse(rows[0]["is_closed_or_missing"])
+
     def test_profile_loading(self):
         self.assertEqual(self.profile["name"], "Khoi Nguyen")
         self.assertNotIn("phone", self.profile)

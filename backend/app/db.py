@@ -778,7 +778,7 @@ def mark_missing_jobs(source: str, checked_at: str, seen_jobs: list[dict[str, An
     init_db(path)
     seen = {duplicate_key(job) for job in seen_jobs}
     with connection(path) as conn:
-        rows = conn.execute("SELECT id, title, company, location, source_url, apply_url, external_job_id, external_id, description_hash FROM jobs WHERE source = ?", (source,)).fetchall()
+        rows = conn.execute("SELECT id, title, company, location, source, attribution_note, source_url, apply_url, external_job_id, external_id, description_hash FROM jobs WHERE source = ?", (source,)).fetchall()
         missing_ids = [row["id"] for row in rows if duplicate_key(dict(row)) not in seen]
         for job_id in missing_ids:
             conn.execute("UPDATE jobs SET is_closed_or_missing = 1, last_checked_at = ? WHERE id = ?", (checked_at, job_id))
