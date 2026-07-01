@@ -16,7 +16,7 @@ from backend.app.ai.base import MissingAPIKeyError
 from backend.app.ai.openrouter_client import OpenRouterClient
 from backend.app.ai.prompts import materials_user_prompt, safe_generation_context
 from backend.app.ai.service import ai_status
-from backend.app.api import AlertEmailImport, admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, apply_today as apply_today_endpoint, deployment_status, health, import_job_alert_email_text, jobs as jobs_endpoint, latest_report as latest_report_endpoint, overview as overview_endpoint, refresh as refresh_endpoint, review_queue as review_queue_endpoint, sources as sources_endpoint, validate_source_config
+from backend.app.api import AlertEmailImport, admin_refresh_jobs, ai_status_endpoint, application_board as application_board_endpoint, apply_today as apply_today_endpoint, dashboard_summary as dashboard_summary_endpoint, deployment_status, health, import_job_alert_email_text, jobs as jobs_endpoint, latest_report as latest_report_endpoint, overview as overview_endpoint, refresh as refresh_endpoint, review_queue as review_queue_endpoint, sources as sources_endpoint, validate_source_config
 from backend.app.documents import (
     build_packet_files,
     detect_document_checklist,
@@ -902,7 +902,7 @@ class MvpTests(unittest.TestCase):
             self.assertIn(label, api_text)
         self.assertIn("dataModeLabel()", dashboard_text)
         self.assertIn("Promise.allSettled", dashboard_text)
-        self.assertIn("Live API connected, but no jobs returned for this filter", dashboard_text)
+        self.assertIn("Live API has", dashboard_text)
         self.assertIn("Hosted refresh admin-only", dashboard_text)
         self.assertIn("International sources", dashboard_text)
         self.assertIn("Southeast Asia sources", dashboard_text)
@@ -1063,8 +1063,38 @@ class MvpTests(unittest.TestCase):
 
     def test_dashboard_live_api_initial_state_says_loading_not_zero(self):
         text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
-        self.assertIn("Loading live jobs...", text)
+        self.assertIn("Loading job list...", text)
         self.assertIn("Loading sources", text)
+
+    def test_dashboard_summary_endpoint_returns_compact_counts(self):
+        rows = [{**self.job, "match_score": 80}, {**self.job, "match_score": 60}, {**self.job, "match_score": 30}]
+        queue = {"new_today": [rows[0]], "fresh_high_match": [rows[0]], "closing_soon": [], "packet_ready": [], "applied_follow_up": []}
+        board = {"follow_up_due": [rows[1]]}
+        report = {"exists": True, "generated_at": "2026-07-01T12:00:00Z", "summary": {"new_jobs_inserted": 1}, "text": "secret packet text"}
+        with patch("backend.app.api.db.list_jobs", return_value=rows), patch("backend.app.api.latest_daily_report", return_value=report), patch("backend.app.api.db.review_queue", return_value=queue), patch("backend.app.api.db.application_board", return_value=board), patch("backend.app.api.load_sources", return_value=[{"name": "USAJobs API"}, {"name": "JSearch GIS US"}]), patch("backend.app.api.db.apply_today", return_value=[{"id": 1, "title": "GIS Analyst"}]):
+            summary = dashboard_summary_endpoint()
+        self.assertEqual(summary["job_count"], 3)
+        self.assertEqual(summary["source_count"], 2)
+        self.assertEqual(summary["strong_fit_count"], 1)
+        self.assertEqual(summary["possible_fit_count"], 1)
+        self.assertEqual(summary["follow_up_due_count"], 1)
+        self.assertEqual(summary["review_counts"]["new_today"], 1)
+        self.assertEqual(len(summary["top_jobs"]), 1)
+        self.assertNotIn("text", summary["digest"])
+        self.assertNotIn("secret packet text", json.dumps(summary))
+
+    def test_dashboard_progressive_loading_static_contract(self):
+        text = Path("frontend/components/DashboardPage.tsx").read_text(encoding="utf-8")
+        api_text = Path("frontend/lib/api.ts").read_text(encoding="utf-8")
+        self.assertIn("gisJobPortal:lastDashboardSummary:v1", text)
+        self.assertIn("/dashboard/summary", text)
+        self.assertIn("Showing last loaded data - updating...", text)
+        self.assertIn("Live API update failed. Showing last loaded data.", text)
+        self.assertIn("Report unavailable.", text)
+        self.assertIn("Loading latest report...", text)
+        self.assertIn("Live API has", text)
+        self.assertIn("Hosted refresh admin-only", text)
+        self.assertIn("AbortController", api_text)
 
     def test_connect_render_backend_script_is_safe_static(self):
         text = Path("scripts/connect_render_backend.ps1").read_text(encoding="utf-8")

@@ -205,6 +205,38 @@ def deployment_status() -> dict[str, Any]:
     }
 
 
+@app.get("/dashboard/summary")
+def dashboard_summary() -> dict[str, Any]:
+    jobs = db.list_jobs(include_sample=should_include_sample())
+    report = latest_daily_report()
+    queue = db.review_queue(include_sample=should_include_sample())
+    board = db.application_board(include_sample=should_include_sample())
+    return {
+        "api_env": api_env(),
+        "database_runtime_type": database_runtime_type(),
+        "backend_url": os.getenv("BACKEND_URL", ""),
+        "last_refresh": report.get("generated_at") or report.get("date") or "",
+        "source_count": len(load_sources()),
+        "job_count": len(jobs),
+        "strong_fit_count": sum(1 for item in jobs if int(item.get("match_score") or 0) >= 70),
+        "possible_fit_count": sum(1 for item in jobs if 55 <= int(item.get("match_score") or 0) < 70),
+        "follow_up_due_count": len(board["follow_up_due"]),
+        "digest": {
+            "exists": bool(report.get("exists")),
+            "generated_at": report.get("generated_at") or report.get("date") or "",
+            "summary": report.get("summary") or {},
+        },
+        "review_counts": {
+            "new_today": len(queue["new_today"]),
+            "fresh_high_match": len(queue["fresh_high_match"]),
+            "closing_soon": len(queue["closing_soon"]),
+            "packet_ready": len(queue["packet_ready"]),
+            "applied_follow_up": len(queue["applied_follow_up"]),
+        },
+        "top_jobs": db.apply_today(limit=5, include_sample=should_include_sample()),
+    }
+
+
 @app.get("/jobs")
 def jobs(status: str | None = None, active_only: bool = False, include_sample: bool = False) -> list[dict[str, Any]]:
     ensure_seeded()

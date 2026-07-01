@@ -627,7 +627,7 @@ def latest_daily_report(path: Path | str = DB_PATH) -> dict[str, Any]:
         summary = json.loads(item.get("summary_json") or "{}")
     except json.JSONDecodeError:
         summary = {}
-    return {"exists": True, "date": item.get("report_date", ""), "text": item.get("report_markdown", ""), "summary": summary, "source": item.get("source", "")}
+    return {"exists": True, "date": item.get("report_date", ""), "generated_at": item.get("generated_at", ""), "text": item.get("report_markdown", ""), "summary": summary, "source": item.get("source", "")}
 
 
 def canonical_job_url(job: dict[str, Any]) -> str:

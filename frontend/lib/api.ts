@@ -264,9 +264,31 @@ export type ApplicationBoard = {
 export type DailyReport = {
   exists: boolean;
   date: string;
+  generated_at?: string;
   path?: string;
   text: string;
   summary: Record<string, number>;
+};
+
+export type DashboardSummary = {
+  api_env: string;
+  database_runtime_type: string;
+  backend_url: string;
+  last_refresh: string;
+  source_count: number;
+  job_count: number;
+  strong_fit_count: number;
+  possible_fit_count: number;
+  follow_up_due_count: number;
+  digest: { exists: boolean; generated_at: string; summary: Record<string, number> };
+  review_counts: {
+    new_today: number;
+    fresh_high_match: number;
+    closing_soon: number;
+    packet_ready: number;
+    applied_follow_up: number;
+  };
+  top_jobs: ApplyTodayJob[];
 };
 
 const demoJobs: Job[] = [
@@ -471,6 +493,7 @@ function demoReport(): DailyReport {
   return {
     exists: true,
     date: "demo",
+    generated_at: "demo",
     text: "# Daily Review Digest - demo\n\nDemo mode uses bundled sample jobs.",
     summary: {
       new_jobs_inserted: 2,
@@ -487,6 +510,28 @@ function demoApi<T>(path: string, init?: RequestInit): T {
   const jobMatch = path.match(/^\/jobs\/(\d+)/);
   const job = jobMatch ? demoJobs.find((row) => row.id === Number(jobMatch[1])) || demoJobs[0] : demoJobs[0];
   if (path === "/jobs") return demoJobs as T;
+  if (path === "/dashboard/summary") {
+    return {
+      api_env: "demo",
+      database_runtime_type: "demo",
+      backend_url: "",
+      last_refresh: "demo",
+      source_count: 1,
+      job_count: demoJobs.length,
+      strong_fit_count: demoStats().high_matches,
+      possible_fit_count: demoStats().medium_matches,
+      follow_up_due_count: 0,
+      digest: { exists: true, generated_at: "demo", summary: demoReport().summary },
+      review_counts: {
+        new_today: 0,
+        fresh_high_match: demoReviewQueue().fresh_high_match.length,
+        closing_soon: demoReviewQueue().closing_soon.length,
+        packet_ready: demoReviewQueue().packet_ready.length,
+        applied_follow_up: demoReviewQueue().applied_follow_up.length,
+      },
+      top_jobs: demoApi<ApplyTodayJob[]>("/review/apply-today"),
+    } as T;
+  }
   if (path.startsWith("/review/queue")) return demoReviewQueue() as T;
   if (path.startsWith("/review/apply-today")) {
     return demoJobs.slice(0, 2).map((job) => ({
@@ -600,14 +645,19 @@ function demoApi<T>(path: string, init?: RequestInit): T {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (API_MODE === "demo") return demoApi<T>(path, init);
   if (!API_URL) throw new Error("API mode is enabled but NEXT_PUBLIC_API_BASE_URL is missing.");
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), 15000);
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
+      signal: init?.signal || controller.signal,
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     });
   } catch (error) {
     throw new Error(`Backend connection failed for ${API_URL}${path}: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;

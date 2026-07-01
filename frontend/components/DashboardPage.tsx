@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, AiStatus, API_URL, ApplicationBoard, ApplicationPacket, ApplyTodayJob, DailyReport, Job, Source, Stats, dataModeLabel } from "../lib/api";
+import { api, AiStatus, API_URL, ApplicationBoard, ApplicationPacket, ApplyTodayJob, DailyReport, DashboardSummary, Job, Source, Stats, dataModeLabel } from "../lib/api";
 
 type View = "overview" | "applyToday" | "review" | "applications" | "new" | "best" | "saved" | "applied" | "follow" | "skipped" | "settings";
 type FreshnessFilter = "active" | "fresh" | "last30" | "include_stale" | "closing" | "unknown";
@@ -68,6 +68,7 @@ const LAST_30_DAYS = 30;
 const HIDE_AFTER_DAYS = 45;
 const CLOSING_SOON_DAYS = 7;
 const SAMPLE_JOB_SOURCE = "Sample GIS Jobs";
+const DASHBOARD_SUMMARY_CACHE_KEY = "gisJobPortal:lastDashboardSummary:v1";
 
 function parseDate(value?: string) {
   return value ? new Date(`${value.slice(0, 10)}T00:00:00`) : null;
@@ -239,17 +240,59 @@ export default function DashboardPage({ view }: { view: View }) {
   const [applyTodayJobs, setApplyTodayJobs] = useState<ApplyTodayJob[]>([]);
   const [applicationBoard, setApplicationBoard] = useState<ApplicationBoard>(emptyApplicationBoard());
   const [report, setReport] = useState<DailyReport | null>(null);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState({ summary: true, jobs: true, sources: true, report: true });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [summaryStatus, setSummaryStatus] = useState("Loading live summary...");
   const [freshness, setFreshness] = useState<FreshnessFilter>("active");
   const [reviewFilters, setReviewFilters] = useState<ReviewFilters>({ freshOnly: false, highMatchOnly: false, closingSoon: false, unreviewedOnly: false, includeStale: false });
   const [message, setMessage] = useState("");
   const [alertSource, setAlertSource] = useState("linkedin");
   const [alertText, setAlertText] = useState("");
 
-  async function load() {
+  function applySummary(summary: DashboardSummary, cached = false) {
+    setDashboardSummary(summary);
+    setStats({
+      total: summary.job_count,
+      high_matches: summary.strong_fit_count,
+      medium_matches: summary.possible_fit_count,
+      low_matches: 0,
+      by_status: { follow_up_needed: summary.follow_up_due_count },
+    });
+    setApplyTodayJobs(summary.top_jobs || []);
+    if (summary.digest.exists) {
+      setReport({ exists: true, date: summary.digest.generated_at || summary.last_refresh, generated_at: summary.digest.generated_at, text: "", summary: summary.digest.summary });
+    }
+    setSummaryStatus(cached ? "Showing last loaded data - updating..." : `Live data updated at ${new Date().toLocaleTimeString()}`);
+  }
+
+  async function loadSummary() {
+    setLoading((row) => ({ ...row, summary: true }));
+    try {
+      const summary = await api<DashboardSummary>("/dashboard/summary");
+      applySummary(summary);
+      localStorage.setItem(DASHBOARD_SUMMARY_CACHE_KEY, JSON.stringify(summary));
+      setErrors((row) => {
+        const next = { ...row };
+        delete next.summary;
+        return next;
+      });
+    } catch (error) {
+      setErrors((row) => ({ ...row, summary: String(error) }));
+      const hasCache = Boolean(localStorage.getItem(DASHBOARD_SUMMARY_CACHE_KEY));
+      setSummaryStatus(hasCache ? "Live API unavailable - showing cached data" : "Live API unavailable");
+      setMessage(hasCache ? "Live API update failed. Showing last loaded data." : `Live API update failed. ${String(error)}`);
+    } finally {
+      setLoading((row) => ({ ...row, summary: false }));
+    }
+  }
+
+  async function loadDetails() {
     setLoaded(false);
+    setLoading((row) => ({ ...row, jobs: true, sources: true, report: true }));
     const [jobRows, overview, sourceRows, applyTodayRows, boardRows, reportRow, profileRow, aiRow] = await Promise.allSettled([
       api<Job[]>("/jobs"),
       api<Stats>("/stats/overview"),
@@ -260,27 +303,48 @@ export default function DashboardPage({ view }: { view: View }) {
       api<any>("/profile"),
       api<AiStatus>("/ai/status"),
     ]);
-    const failures: string[] = [];
-    if (jobRows.status === "fulfilled") setJobs(jobRows.value); else failures.push(`/jobs: ${jobRows.reason}`);
-    if (overview.status === "fulfilled") setStats(overview.value); else failures.push(`/stats/overview: ${overview.reason}`);
-    if (sourceRows.status === "fulfilled") setSources(sourceRows.value); else failures.push(`/sources: ${sourceRows.reason}`);
-    if (applyTodayRows.status === "fulfilled") setApplyTodayJobs(applyTodayRows.value); else failures.push(`/review/apply-today: ${applyTodayRows.reason}`);
-    if (boardRows.status === "fulfilled") setApplicationBoard(boardRows.value); else failures.push(`/application/board: ${boardRows.reason}`);
-    if (reportRow.status === "fulfilled") setReport(reportRow.value); else failures.push(`/reports/latest: ${reportRow.reason}`);
-    if (profileRow.status === "fulfilled") setProfile(profileRow.value); else failures.push(`/profile: ${profileRow.reason}`);
-    if (aiRow.status === "fulfilled") setAiStatus(aiRow.value); else failures.push(`/ai/status: ${aiRow.reason}`);
-    if (failures.length) setMessage(`Live API connected, but ${failures.join("; ")}`);
+    const failures: Record<string, string> = {};
+    if (jobRows.status === "fulfilled") setJobs(jobRows.value); else failures.jobs = String(jobRows.reason);
+    if (overview.status === "fulfilled") setStats(overview.value); else failures.stats = String(overview.reason);
+    if (sourceRows.status === "fulfilled") setSources(sourceRows.value); else failures.sources = String(sourceRows.reason);
+    if (applyTodayRows.status === "fulfilled") setApplyTodayJobs(applyTodayRows.value); else failures.applyToday = String(applyTodayRows.reason);
+    if (boardRows.status === "fulfilled") setApplicationBoard(boardRows.value); else failures.applicationBoard = String(boardRows.reason);
+    if (reportRow.status === "fulfilled") setReport(reportRow.value); else failures.report = String(reportRow.reason);
+    if (profileRow.status === "fulfilled") setProfile(profileRow.value); else failures.profile = String(profileRow.reason);
+    if (aiRow.status === "fulfilled") setAiStatus(aiRow.value); else failures.ai = String(aiRow.reason);
+    setErrors((row) => {
+      const next = { ...row };
+      for (const key of ["jobs", "stats", "sources", "applyToday", "applicationBoard", "report", "profile", "ai"]) delete next[key];
+      return { ...next, ...failures };
+    });
+    if (Object.keys(failures).length) setMessage(`Live API connected, but ${Object.keys(failures).join(", ")} did not load.`);
+    setLoading((row) => ({ ...row, jobs: false, sources: false, report: false }));
     setLoaded(true);
   }
 
+  async function load() {
+    await loadSummary();
+    await loadDetails();
+  }
+
   useEffect(() => {
+    const cached = localStorage.getItem(DASHBOARD_SUMMARY_CACHE_KEY);
+    if (cached) {
+      try {
+        applySummary(JSON.parse(cached), true);
+      } catch {
+        localStorage.removeItem(DASHBOARD_SUMMARY_CACHE_KEY);
+      }
+    }
     load().catch((error) => {
       setMessage(error.message);
+      setSummaryStatus(dashboardSummary ? "Live API unavailable - showing cached data" : "Live API unavailable");
       setLoaded(true);
     });
   }, []);
 
   const visibleJobs = useMemo(() => filterJobs(jobs, view, freshness), [jobs, view, freshness]);
+  const backendJobCount = dashboardSummary?.job_count ?? stats?.total ?? jobs.length;
   const reviewQueue = useMemo(() => buildReviewQueue(jobs, reviewFilters.includeStale), [jobs, reviewFilters.includeStale]);
   const sourceCounts = useMemo(() => sourceSummary(sources), [sources]);
   const emailAlertSources = sources.filter((source) => source.coverage_tier === "big_board_email_alert");
@@ -408,8 +472,9 @@ export default function DashboardPage({ view }: { view: View }) {
   const headerMeta = {
     mode: dataModeLabel(),
     apiUrl: API_URL,
-    sourceCount: loaded ? String(sources.length) : "loading",
-    lastRefresh: loaded ? reportTimestamp(report) : "loading",
+    sourceCount: dashboardSummary ? String(dashboardSummary.source_count) : loaded ? String(sources.length) : "loading",
+    lastRefresh: dashboardSummary?.last_refresh || (loaded ? reportTimestamp(report) : "loading"),
+    summaryStatus,
   };
 
   if (view === "settings") {
@@ -451,6 +516,8 @@ export default function DashboardPage({ view }: { view: View }) {
               <div className="stat"><strong>{sourceCounts.credentialMissing}</strong><span>Credentials missing</span></div>
               <div className="stat"><strong>{sourceCounts.sourceErrors}</strong><span>Source errors</span></div>
             </div>
+            {loading.sources && !sources.length && <p className="muted">Loading sources...</p>}
+            {errors.sources && <p className="muted">Sources unavailable. Summary data is still shown.</p>}
             {sources.map((source) => (
               <p key={source.name}>
                 <strong>{source.name}</strong> <span className="chip">{source.type}</span> {source.coverage_tier && <span className="chip">{source.coverage_tier.replaceAll("_", " ")}</span>} {source.region_scope && <span className="chip">{source.region_scope.replaceAll("_", " ")}</span>} <span className={source.enabled ? "chip green" : "chip"}>{source.enabled ? "enabled" : "disabled"}</span> <span className={source.validation_status === "error" ? "chip red" : source.validation_status === "warning" ? "chip warning" : source.validation_status === "ok" ? "chip green" : "chip"}>{source.validation_status || source.status || "disabled"}</span>{source.requires_api_key && <span className={source.credentials_configured ? "chip green" : "chip warning"}>{source.credentials_configured ? "credentials present" : "credentials missing"}</span>}<br />
@@ -527,7 +594,7 @@ export default function DashboardPage({ view }: { view: View }) {
     return (
       <Shell view={view}>
         <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
-        <DailyDigest report={report} />
+        <DailyDigest report={report} loading={loading.report && !report?.text} error={errors.report} />
         <ReviewFilterBar filters={reviewFilters} setFilters={setReviewFilters} />
         <ReviewGroup title="New Today" jobs={reviewFilterRows(reviewQueue.new_today, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
         <ReviewGroup title="Fresh High Match" jobs={reviewFilterRows(reviewQueue.fresh_high_match, reviewFilters)} onReview={setReview} onStatus={setStatus} onGeneratePacket={generatePacket} />
@@ -550,7 +617,7 @@ export default function DashboardPage({ view }: { view: View }) {
           {applyTodayJobs.map((job) => (
             <ApplyTodayCard key={job.id} job={job} onReview={setReview} onStarted={markStarted} onApplied={markApplied} onGeneratePacket={generatePacket} onNotes={addSubmissionNotes} onCopy={copy} onResolveBlocker={updateBlocker} onNoteBlocker={noteBlocker} onOverrideReady={overrideReady} />
           ))}
-          {!applyTodayJobs.length && <p className="muted">{loaded ? "No priority jobs ready right now." : "Loading priority jobs..."}</p>}
+          {!applyTodayJobs.length && <p className="muted">{loading.jobs ? "Loading priority jobs..." : "No priority jobs ready right now."}</p>}
         </div>
       </Shell>
     );
@@ -585,7 +652,7 @@ export default function DashboardPage({ view }: { view: View }) {
     <Shell view={view}>
       <Header title={titles[view]} onRefresh={refreshJobs} message={message} meta={headerMeta} />
       {view === "overview" && <div className="toolbar"><Link className="button primary" href="/apply-today">View Apply Today</Link></div>}
-      {view === "overview" && <DailyDigest report={report} />}
+      {view === "overview" && <DailyDigest report={report} loading={loading.report && !report?.text} error={errors.report} />}
       {stats && (
         <div className="stats">
           <div className="stat"><strong>{stats.total}</strong><span>Total jobs</span></div>
@@ -617,10 +684,12 @@ export default function DashboardPage({ view }: { view: View }) {
         ))}
         {!visibleJobs.length && (
           <p className="muted">
-            {!loaded
-              ? "Loading live jobs..."
-              : dataModeLabel() === "Live API" && (jobs.length || stats?.total)
-              ? `Live API connected, but no jobs returned for this filter. Backend reports ${stats?.total ?? jobs.length} jobs. Try Include stale or Refresh jobs.`
+            {loading.jobs
+              ? "Loading job list..."
+              : dataModeLabel() === "Live API" && backendJobCount > 0
+              ? `Live API has ${backendJobCount} jobs, but none match this filter.`
+              : dataModeLabel() === "Live API"
+              ? "Live API connected, but no jobs have been imported yet."
               : "No jobs in this view yet."}
           </p>
         )}
@@ -860,12 +929,13 @@ function reportTimestamp(report: DailyReport | null) {
   return report?.text.match(/Refresh timestamp: (.+)/)?.[1] || report?.date || "not generated";
 }
 
-function DailyDigest({ report }: { report: DailyReport | null }) {
+function DailyDigest({ report, loading, error }: { report: DailyReport | null; loading: boolean; error?: string }) {
   const summary = report?.summary || {};
+  const text = error ? "Report unavailable." : loading ? "Loading latest report..." : report?.text || (dataModeLabel() === "Live API" ? "No hosted report yet. Live stats and review queue counts are still available." : "No daily review report has been generated yet.");
   return (
     <section className="settings-section">
       <h3>Latest Daily Digest</h3>
-      <p className="muted">Last refresh: {reportTimestamp(report)}</p>
+      <p className="muted">Last refresh: {loading ? "loading" : reportTimestamp(report)}</p>
       <div className="stats">
         <div className="stat"><strong>{summary.new_jobs_inserted ?? 0}</strong><span>New jobs</span></div>
         <div className="stat"><strong>{summary.high_match_unreviewed_jobs ?? 0}</strong><span>High match unreviewed</span></div>
@@ -876,7 +946,7 @@ function DailyDigest({ report }: { report: DailyReport | null }) {
       </div>
       <details>
         <summary className="button">View Latest Report</summary>
-        <pre>{report?.text || (dataModeLabel() === "Live API" ? "No hosted report generated yet. Live stats and review queue counts are still available." : "No daily review report has been generated yet.")}</pre>
+        <pre>{text}</pre>
       </details>
     </section>
   );
@@ -1005,7 +1075,7 @@ function Header({
   title: string;
   onRefresh: () => void;
   message: string;
-  meta: { mode: string; apiUrl: string; sourceCount: string; lastRefresh: string };
+  meta: { mode: string; apiUrl: string; sourceCount: string; lastRefresh: string; summaryStatus: string };
 }) {
   return (
     <>
@@ -1019,6 +1089,7 @@ function Header({
             <span className="chip">{meta.sourceCount === "loading" ? "Loading sources" : `${meta.sourceCount} sources`}</span>
             <span className="chip">Last refresh: {meta.lastRefresh}</span>
           </div>
+          <p className="muted">{meta.summaryStatus}</p>
         </div>
         {meta.mode === "Live API" ? (
           <div>
